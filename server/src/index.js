@@ -16,7 +16,7 @@ app.set('trust proxy', 1);
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 app.use(express.json({ limit: '2mb' }));
 
-const origins = (process.env.FRONTEND_URL || 'http://localhost:5173').split(',').map((s) => s.trim());
+const origins = (process.env.FRONTEND_URL || 'http://localhost:5173').split(',').map((s) => s.trim().replace(/\/+$/, ''));
 const apiCors = cors({ origin: origins });
 
 app.get('/health', (_req, res) => res.json({ ok: true, service: 'wynmail' }));
