@@ -6,6 +6,9 @@ import { senderAllowed } from './validate.js';
 
 const MAX_ATTEMPTS = 3;
 const TICK_MS = Number(process.env.QUEUE_TICK_MS || 5000);
+// Pause between sends so the shared provider key stays under the provider's requests-per-second limit.
+const SEND_GAP_MS = Number(process.env.SEND_GAP_MS || 500);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let running = false;
 
 export async function enqueueDueCampaigns() {
@@ -63,7 +66,9 @@ export async function drainOnce() {
 
   for (const workspace of workspaces) {
     const dailyLeft = Math.max(0, (workspace.daily_limit || 0) - (await sentToday(workspace.id)));
-    const batchSize = Math.min(workspace.rate_per_minute || 60, dailyLeft);
+    // rate_per_minute is per minute, so scale it down to the size of one tick.
+    const perTick = Math.max(1, Math.ceil(((workspace.rate_per_minute || 60) * TICK_MS) / 60000));
+    const batchSize = Math.min(perTick, dailyLeft);
     if (batchSize <= 0) continue;
 
     // Claim rows atomically so an overlapping tick or second instance never double-sends.
@@ -75,7 +80,10 @@ export async function drainOnce() {
        ) RETURNING *`,
       [workspace.id, batchSize]
     );
-    for (const message of batch) await sendMessage(workspace, message);
+    for (const message of batch) {
+      await sendMessage(workspace, message);
+      await sleep(SEND_GAP_MS);
+    }
   }
 
   await query(

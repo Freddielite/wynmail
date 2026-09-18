@@ -20,3 +20,4 @@
 18. `test: add security regression suite`
 19. `feat(web): admin Clients page and admin-aware Settings`
 20. `chore(deploy): add Vercel SPA rewrite, Render blueprint and Node engine requirement`
+21. `fix(queue): enforce per-minute limit per tick and add global send gap to respect provider rate limits`
