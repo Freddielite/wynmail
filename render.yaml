@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: wynmail-api
+    runtime: node
+    rootDir: server
+    plan: free # use starter for production, free instances sleep and pause the send queue
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PGSSL
+        value: require
+      - key: ALLOW_SIGNUP
+        value: "false"
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: PUBLIC_URL
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false

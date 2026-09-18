@@ -1,0 +1,65 @@
+import crypto from 'crypto';
+import { hmac } from './config.js';
+
+export const newToken = () => crypto.randomBytes(16).toString('hex');
+
+const escapeHtml = (s) =>
+  String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+// Merge fields look like {{first_name}}. Values are HTML-escaped when merged into HTML,
+// so a contact named <script> cannot inject markup into an email or a preview.
+export function merge(input, contact, { html = false } = {}) {
+  const data = { ...(contact.attributes || {}),
+    first_name: contact.first_name || '', last_name: contact.last_name || '', email: contact.email || '' };
+  return String(input || '').replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_, key) => {
+    if (!Object.hasOwn(data, key)) return '';
+    const value = data[key];
+    if (value === undefined || value === null) return '';
+    return html ? escapeHtml(value) : String(value);
+  });
+}
+
+export function trackingBase(workspace) {
+  const domain = workspace.tracking_domain;
+  if (domain) return domain.startsWith('http') ? domain : `https://${domain}`;
+  return process.env.PUBLIC_URL || 'http://localhost:4000';
+}
+
+export const linkSig = (token, url) => hmac(`c:${token}:${url}`).slice(0, 32);
+
+// Every link is signed, so the click endpoint only redirects to URLs that Wynmail itself rendered.
+export function rewriteLinks(html, base, token) {
+  return html.replace(/href\s*=\s*"(https?:\/\/[^"]+)"/gi, (match, raw) => {
+    if (raw.includes('/t/u/')) return match;
+    const url = raw.replace(/&amp;/g, '&');
+    return `href="${base}/t/c/${token}?url=${encodeURIComponent(url)}&sig=${linkSig(token, url)}"`;
+  });
+}
+
+export function complianceFooter(workspace, base, token) {
+  const address = escapeHtml(workspace.footer_address || workspace.name || '');
+  return `
+  <div style="margin-top:32px;padding-top:16px;border-top:1px solid #e2e8f0;font:12px/1.6 Arial,sans-serif;color:#64748b;text-align:center">
+    <div>${address}</div>
+    <div style="margin-top:6px">
+      <a href="${base}/t/u/${token}" style="color:#1d4ed8">Unsubscribe</a> from these emails.
+    </div>
+  </div>`;
+}
+
+export function buildEmail({ workspace, contact, subject, html, token }) {
+  const base = trackingBase(workspace);
+  let body = merge(html, contact, { html: true });
+  body = rewriteLinks(body, base, token);
+  body += complianceFooter(workspace, base, token);
+  body += `<img src="${base}/t/o/${token}.png" width="1" height="1" alt="" style="display:none">`;
+  return {
+    subject: merge(subject, contact).replace(/[\r\n]+/g, ' ').slice(0, 300),
+    html: `<!doctype html><html><body style="margin:0;padding:24px;background:#f8fafc">${body}</body></html>`,
+    text: body.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
+    headers: {
+      'List-Unsubscribe': `<${base}/t/u/${token}>`,
+      'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click'
+    }
+  };
+}

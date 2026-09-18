@@ -1,0 +1,106 @@
+import { useEffect, useState } from 'react';
+import { api } from '../api.js';
+
+export default function Settings({ admin }) {
+  const [form, setForm] = useState(null);
+  const [keyInput, setKeyInput] = useState('');
+  const [clearKey, setClearKey] = useState(false);
+  const [note, setNote] = useState('');
+  const [error, setError] = useState('');
+
+  useEffect(() => { api.workspace().then(setForm).catch((e) => setError(e.message)); }, []);
+  if (!form) return <p className="muted">Loading...</p>;
+
+  const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+
+  const save = async () => {
+    setError(''); setNote('');
+    const body = {
+      name: form.name, from_name: form.from_name, from_email: form.from_email, reply_to: form.reply_to,
+      footer_address: form.footer_address, tracking_domain: form.tracking_domain
+    };
+    if (admin) {
+      Object.assign(body, {
+        sending_domain: form.sending_domain, provider: form.provider,
+        rate_per_minute: Number(form.rate_per_minute), daily_limit: Number(form.daily_limit)
+      });
+    }
+    if (keyInput.trim()) body.provider_api_key = keyInput.trim();
+    if (clearKey) body.clear_provider_key = true;
+    try {
+      setForm(await api.saveWorkspace(body));
+      setKeyInput(''); setClearKey(false);
+      setNote('Settings saved.');
+    } catch (e) { setError(e.message); }
+  };
+
+  const domain = form.sending_domain || 'yourdomain.com';
+
+  return (
+    <>
+      <h1>Settings</h1>
+      <p className="muted" style={{ marginBottom: 20 }}>Sender identity, tracking and sending limits for this workspace.</p>
+      {error && <div className="error">{error}</div>}
+      {note && <div className="ok">{note}</div>}
+
+      <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', alignItems: 'start' }}>
+        <div className="card">
+          <h3>Sender</h3>
+          <div className="field" style={{ marginTop: 12 }}><label>Workspace name</label><input value={form.name || ''} onChange={set('name')} /></div>
+          <div className="field">
+            <label>Sending domain {!admin && '(approved by Wyntek)'}</label>
+            <input placeholder="mail.clientdomain.com" value={form.sending_domain || ''} onChange={set('sending_domain')} disabled={!admin} />
+          </div>
+          <div className="field"><label>From name</label><input value={form.from_name || ''} onChange={set('from_name')} /></div>
+          <div className="field"><label>From email (must use the sending domain)</label><input value={form.from_email || ''} onChange={set('from_email')} /></div>
+          <div className="field"><label>Reply to</label><input value={form.reply_to || ''} onChange={set('reply_to')} /></div>
+          <div className="field"><label>Footer postal address</label><input value={form.footer_address || ''} onChange={set('footer_address')} /></div>
+          <button className="btn" onClick={save}>Save settings</button>
+        </div>
+
+        <div className="grid">
+          <div className="card">
+            <h3>Delivery</h3>
+            <div className="field" style={{ marginTop: 12 }}><label>Tracking domain</label><input placeholder="track.clientdomain.com" value={form.tracking_domain || ''} onChange={set('tracking_domain')} /></div>
+            <div className="row">
+              <div className="field" style={{ flex: 1 }}><label>Emails per minute</label><input type="number" value={form.rate_per_minute} onChange={set('rate_per_minute')} disabled={!admin} /></div>
+              <div className="field" style={{ flex: 1 }}><label>Daily limit</label><input type="number" value={form.daily_limit} onChange={set('daily_limit')} disabled={!admin} /></div>
+            </div>
+            <div className="field"><label>Provider</label>
+              <select value={form.provider} onChange={set('provider')} disabled={!admin}>
+                <option value="resend">Resend</option>
+                <option value="console">Console (dry run)</option>
+              </select>
+            </div>
+            <div className="field">
+              <label>Provider API key</label>
+              <input type="password" autoComplete="off" value={keyInput} onChange={(e) => setKeyInput(e.target.value)}
+                placeholder={form.has_provider_key ? 'Saved. Type to replace.' : 'Leave blank to use the Wyntek shared key'} />
+              {form.has_provider_key && (
+                <label style={{ marginTop: 8, fontWeight: 500 }}>
+                  <input type="checkbox" style={{ width: 'auto', marginRight: 8 }} checked={clearKey} onChange={(e) => setClearKey(e.target.checked)} />
+                  Remove the saved key
+                </label>
+              )}
+            </div>
+            <button className="btn" onClick={save}>Save settings</button>
+          </div>
+
+          <div className="card">
+            <h3>DNS checklist</h3>
+            <p className="muted">Add these at your DNS host, then verify the domain with your provider.</p>
+            <table>
+              <thead><tr><th>Type</th><th>Host</th><th>Value</th></tr></thead>
+              <tbody>
+                <tr><td>TXT</td><td>{domain}</td><td>SPF record from your provider</td></tr>
+                <tr><td>TXT</td><td>resend._domainkey.{domain}</td><td>DKIM key from your provider</td></tr>
+                <tr><td>TXT</td><td>_dmarc.{domain}</td><td>v=DMARC1; p=none; rua=mailto:dmarc@{domain}</td></tr>
+                <tr><td>CNAME</td><td>{form.tracking_domain || `track.${domain}`}</td><td>your Wynmail host</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
