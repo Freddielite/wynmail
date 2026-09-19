@@ -77,7 +77,7 @@ export default function Campaigns() {
       {error && <div className="error">{error}</div>}
       {note && <div className="ok">{note}</div>}
 
-      <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', alignItems: 'start' }}>
+      <div className="grid cols-2">
         <div className="card">
           <h3>{editing ? `Editing campaign #${editing}` : 'New campaign'}</h3>
           <div className="field" style={{ marginTop: 12 }}><label>Name</label><input value={draft.name} onChange={set('name')} /></div>
@@ -122,19 +122,19 @@ export default function Campaigns() {
 
       <div className="card" style={{ marginTop: 18 }}>
         <h3>All campaigns</h3>
-        <div style={{ overflowX: 'auto' }}>
-          <table>
+        <div className="table-wrap">
+          <table className="stack">
             <thead><tr><th>Name</th><th>List</th><th>Status</th><th>Sent</th><th>Opens</th><th>Clicks</th><th></th></tr></thead>
             <tbody>
               {campaigns.map((c) => (
                 <tr key={c.id}>
-                  <td><strong>{c.name}</strong><div className="muted">{c.subject}</div></td>
-                  <td>{c.list_name || '-'}</td>
-                  <td><span className={`pill ${statusPill[c.status] || 'gray'}`}>{c.status}</span></td>
-                  <td>{c.sent}/{c.total}</td>
-                  <td>{c.opened}</td>
-                  <td>{c.clicked}</td>
-                  <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  <td className="title"><strong>{c.name}</strong><div className="muted">{c.subject}</div></td>
+                  <td data-label="List">{c.list_name || '-'}</td>
+                  <td data-label="Status"><span className={`pill ${statusPill[c.status] || 'gray'}`}>{c.status}</span></td>
+                  <td data-label="Sent">{c.sent}/{c.total}</td>
+                  <td data-label="Opens">{c.opened}</td>
+                  <td data-label="Clicks">{c.clicked}</td>
+                  <td className="actions">
                     <button className="btn ghost sm" onClick={() => showPreview(c.id)}>Preview</button>{' '}
                     <button className="btn ghost sm" onClick={() => openDetail(c)}>Report</button>{' '}
                     {['draft', 'scheduled'].includes(c.status) && (
@@ -158,17 +158,17 @@ export default function Campaigns() {
             <h3>Report: {detail.campaign.name}</h3>
             <button className="btn ghost sm" onClick={() => setDetail(null)}>Close</button>
           </div>
-          <div style={{ overflowX: 'auto', marginTop: 12 }}>
-            <table>
+          <div className="table-wrap" style={{ marginTop: 12 }}>
+            <table className="stack">
               <thead><tr><th>Recipient</th><th>Status</th><th>Opens</th><th>Clicks</th><th>Error</th></tr></thead>
               <tbody>
                 {detail.messages.map((m) => (
                   <tr key={m.id}>
-                    <td>{m.email}</td>
-                    <td><span className={`pill ${m.status === 'sent' ? 'green' : m.status === 'failed' ? 'red' : 'gray'}`}>{m.status}</span></td>
-                    <td>{m.open_count}</td>
-                    <td>{m.click_count}</td>
-                    <td className="muted">{m.error || '-'}</td>
+                    <td data-label="Recipient">{m.email}</td>
+                    <td data-label="Status"><span className={`pill ${m.status === 'sent' ? 'green' : m.status === 'failed' ? 'red' : 'gray'}`}>{m.status}</span></td>
+                    <td data-label="Opens">{m.open_count}</td>
+                    <td data-label="Clicks">{m.click_count}</td>
+                    <td data-label="Error" className="muted">{m.error || '-'}</td>
                   </tr>
                 ))}
               </tbody>

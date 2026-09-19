@@ -62,7 +62,7 @@ export default function Contacts() {
       {error && <div className="error">{error}</div>}
       {note && <div className="ok">{note}</div>}
 
-      <div className="grid" style={{ gridTemplateColumns: 'minmax(260px, 340px) 1fr', alignItems: 'start' }}>
+      <div className="grid cols-side">
         <div className="grid">
           <div className="card">
             <h3>Lists</h3>
@@ -107,16 +107,16 @@ export default function Contacts() {
               <button className="btn ghost sm" onClick={load}>Search</button>
             </div>
           </div>
-          <div style={{ overflowX: 'auto' }}>
-            <table>
+          <div className="table-wrap">
+            <table className="stack">
               <thead><tr><th>Email</th><th>Name</th><th>Status</th><th></th></tr></thead>
               <tbody>
                 {contacts.map((c) => (
                   <tr key={c.id}>
-                    <td>{c.email}</td>
-                    <td>{[c.first_name, c.last_name].filter(Boolean).join(' ') || '-'}</td>
-                    <td><span className={`pill ${c.status === 'subscribed' ? 'green' : 'red'}`}>{c.status}</span></td>
-                    <td style={{ textAlign: 'right' }}>
+                    <td data-label="Email">{c.email}</td>
+                    <td data-label="Name">{[c.first_name, c.last_name].filter(Boolean).join(' ') || '-'}</td>
+                    <td data-label="Status"><span className={`pill ${c.status === 'subscribed' ? 'green' : 'red'}`}>{c.status}</span></td>
+                    <td className="actions">
                       <button className="btn danger sm" onClick={guard(() => api.deleteContact(c.id))}>Delete</button>
                     </td>
                   </tr>

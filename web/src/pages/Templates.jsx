@@ -35,7 +35,7 @@ export default function Templates() {
       <p className="muted" style={{ marginBottom: 20 }}>Reusable HTML with merge fields like {'{{first_name}}'}.</p>
       {error && <div className="error">{error}</div>}
 
-      <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', alignItems: 'start' }}>
+      <div className="grid cols-2">
         <div className="card">
           <h3>{editing ? 'Edit template' : 'New template'}</h3>
           <div className="field" style={{ marginTop: 12 }}>

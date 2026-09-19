@@ -32,6 +32,7 @@ function Shell({ user, workspaces, onLogout }) {
         <div className="side-foot">
           {workspaces.length > 1 && (
             <select
+              className="ws-select"
               value={current?.id || ''}
               onChange={(e) => switchWorkspace(e.target.value)}
               style={{ marginBottom: 12, color: '#0f172a' }}
@@ -41,7 +42,7 @@ function Shell({ user, workspaces, onLogout }) {
           )}
           <div>{current?.name}</div>
           <div>{user?.email}</div>
-          <button className="btn ghost sm" style={{ marginTop: 10 }} onClick={onLogout}>Sign out</button>
+          <button className="btn ghost sm signout" onClick={onLogout}>Sign out</button>
         </div>
       </aside>
       <main className="main">

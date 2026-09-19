@@ -43,7 +43,7 @@ export default function Settings({ admin }) {
       {error && <div className="error">{error}</div>}
       {note && <div className="ok">{note}</div>}
 
-      <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', alignItems: 'start' }}>
+      <div className="grid cols-2">
         <div className="card">
           <h3>Sender</h3>
           <div className="field" style={{ marginTop: 12 }}><label>Workspace name</label><input value={form.name || ''} onChange={set('name')} /></div>
@@ -89,15 +89,15 @@ export default function Settings({ admin }) {
           <div className="card">
             <h3>DNS checklist</h3>
             <p className="muted">Add these at your DNS host, then verify the domain with your provider.</p>
-            <table>
+            <div className="table-wrap"><table className="stack">
               <thead><tr><th>Type</th><th>Host</th><th>Value</th></tr></thead>
               <tbody>
-                <tr><td>TXT</td><td>{domain}</td><td>SPF record from your provider</td></tr>
-                <tr><td>TXT</td><td>resend._domainkey.{domain}</td><td>DKIM key from your provider</td></tr>
-                <tr><td>TXT</td><td>_dmarc.{domain}</td><td>v=DMARC1; p=none; rua=mailto:dmarc@{domain}</td></tr>
-                <tr><td>CNAME</td><td>{form.tracking_domain || `track.${domain}`}</td><td>your Wynmail host</td></tr>
+                <tr><td data-label="Type">TXT</td><td data-label="Host">{domain}</td><td data-label="Value">SPF record from your provider</td></tr>
+                <tr><td data-label="Type">TXT</td><td data-label="Host">resend._domainkey.{domain}</td><td data-label="Value">DKIM key from your provider</td></tr>
+                <tr><td data-label="Type">TXT</td><td data-label="Host">_dmarc.{domain}</td><td data-label="Value">v=DMARC1; p=none; rua=mailto:dmarc@{domain}</td></tr>
+                <tr><td data-label="Type">CNAME</td><td data-label="Host">{form.tracking_domain || `track.${domain}`}</td><td data-label="Value">your Wynmail host</td></tr>
               </tbody>
-            </table>
+            </table></div>
           </div>
         </div>
       </div>

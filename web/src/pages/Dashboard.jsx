@@ -34,7 +34,7 @@ export default function Dashboard({ workspace }) {
         </div>
       </div>
 
-      <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))' }}>
+      <div className="grid stats">
         {cards.map((c) => (
           <div className="stat" key={c.l}>
             <div className="n">{c.n}</div>

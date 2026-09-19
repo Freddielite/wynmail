@@ -38,7 +38,7 @@ export default function Clients() {
       {error && <div className="error">{error}</div>}
       {note && <div className="ok">{note}</div>}
 
-      <div className="grid" style={{ gridTemplateColumns: 'minmax(260px, 340px) 1fr', alignItems: 'start' }}>
+      <div className="grid cols-side">
         <div className="card">
           <h3>New client</h3>
           <div className="field" style={{ marginTop: 12 }}><label>Client name</label><input value={form.name} onChange={set('name')} /></div>
@@ -50,33 +50,33 @@ export default function Clients() {
 
         <div className="card">
           <h3>{rows.length} workspaces</h3>
-          <div style={{ overflowX: 'auto' }}>
-            <table>
+          <div className="table-wrap">
+            <table className="stack">
               <thead><tr><th>Workspace</th><th>Domain</th><th>Today</th><th>Limit</th><th>Members</th><th></th></tr></thead>
               <tbody>
                 {rows.map((r) => (edit?.id === r.id ? (
                   <tr key={r.id}>
-                    <td>{r.name}</td>
-                    <td><input value={edit.sending_domain || ''} onChange={setE('sending_domain')} /></td>
-                    <td>{r.sent_today}</td>
-                    <td style={{ minWidth: 150 }}>
+                    <td className="title"><strong>{r.name}</strong></td>
+                    <td data-label="Domain"><input value={edit.sending_domain || ''} onChange={setE('sending_domain')} /></td>
+                    <td data-label="Today">{r.sent_today}</td>
+                    <td data-label="Limits" style={{ minWidth: 150 }}>
                       <input type="number" title="Daily limit" value={edit.daily_limit} onChange={setE('daily_limit')} style={{ marginBottom: 6 }} />
                       <input type="number" title="Per minute" value={edit.rate_per_minute} onChange={setE('rate_per_minute')} />
                     </td>
-                    <td className="muted">{r.members}</td>
-                    <td style={{ whiteSpace: 'nowrap' }}>
+                    <td data-label="Members" className="muted">{r.members}</td>
+                    <td className="actions">
                       <button className="btn sm" onClick={saveEdit}>Save</button>{' '}
                       <button className="btn ghost sm" onClick={() => setEdit(null)}>Cancel</button>
                     </td>
                   </tr>
                 ) : (
                   <tr key={r.id}>
-                    <td><strong>{r.name}</strong><div className="muted">{r.contacts} contacts</div></td>
-                    <td>{r.sending_domain ? r.sending_domain : <span className="pill amber">not approved</span>}</td>
-                    <td>{r.sent_today}</td>
-                    <td>{r.daily_limit}/day, {r.rate_per_minute}/min</td>
-                    <td className="muted">{r.members}</td>
-                    <td><button className="btn ghost sm" onClick={() => setEdit({ ...r })}>Edit</button></td>
+                    <td className="title"><strong>{r.name}</strong><div className="muted">{r.contacts} contacts</div></td>
+                    <td data-label="Domain">{r.sending_domain ? r.sending_domain : <span className="pill amber">not approved</span>}</td>
+                    <td data-label="Today">{r.sent_today}</td>
+                    <td data-label="Limits">{r.daily_limit}/day, {r.rate_per_minute}/min</td>
+                    <td data-label="Members" className="muted">{r.members}</td>
+                    <td className="actions"><button className="btn ghost sm" onClick={() => setEdit({ ...r })}>Edit</button></td>
                   </tr>
                 )))}
               </tbody>
