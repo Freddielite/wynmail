@@ -19,7 +19,7 @@ function Shell({ user, workspaces, onLogout }) {
     <div className="shell">
       <aside className="side">
         <div className="brand">
-          <span className="brand-dot">W</span> Wynmail
+          <span className="brand-tile"><img src="/logo.svg" width="28" height="28" alt="" /></span> Wynmail
         </div>
         <nav className="nav">
           <NavLink to="/" end>Dashboard</NavLink>

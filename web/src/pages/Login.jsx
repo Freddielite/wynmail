@@ -29,7 +29,7 @@ export default function Login({ onAuthed }) {
     <div className="auth-wrap">
       <div className="auth card">
         <div className="brand" style={{ color: 'var(--navy)' }}>
-          <span className="brand-dot" style={{ background: 'var(--brand-gradient)', color: '#fff' }}>W</span> Wynmail
+          <img src="/logo.svg" width="38" height="38" alt="" /> Wynmail
         </div>
         <h2>Email that <span className="highlight">lands</span>.</h2>
         <p className="muted" style={{ marginBottom: 20 }}>Campaigns, contacts and delivery reporting by Wyntek Technologies.</p>

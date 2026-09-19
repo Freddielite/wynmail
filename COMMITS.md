@@ -22,3 +22,4 @@
 20. `chore(deploy): add Vercel SPA rewrite, Render blueprint and Node engine requirement`
 21. `fix(queue): enforce per-minute limit per tick and add global send gap to respect provider rate limits`
 22. `fix(api): ignore trailing slashes in FRONTEND_URL when matching CORS origins`
+23. `feat(brand): add refined Globe mail logo, favicon and brand assets, use logo in sidebar and login`

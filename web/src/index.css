@@ -39,7 +39,7 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--muted); 
 .shell { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
 .side { background: var(--brand-gradient); color: #fff; padding: 24px 18px; }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 19px; margin-bottom: 26px; }
-.brand-dot { width: 30px; height: 30px; border-radius: 9px; background: rgba(255,255,255,.16); display: grid; place-items: center; font-size: 15px; }
+.brand-tile { width: 40px; height: 40px; border-radius: 11px; background: #fff; display: grid; place-items: center; box-shadow: 0 4px 12px rgba(7,28,63,.25); }
 .nav a { display: block; padding: 10px 12px; border-radius: 10px; color: rgba(255,255,255,.82); text-decoration: none; font-size: 14px; font-weight: 500; margin-bottom: 4px; }
 .nav a:hover { background: rgba(255,255,255,.1); color: #fff; }
 .nav a.active { background: rgba(255,255,255,.18); color: #fff; }
