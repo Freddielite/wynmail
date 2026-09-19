@@ -37,13 +37,13 @@ label { display: block; font-size: 13px; font-weight: 600; color: var(--muted); 
 .grid { display: grid; gap: 16px; }
 .muted { color: var(--muted); font-size: 14px; }
 .shell { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
-.side { background: var(--brand-gradient); color: #fff; padding: 24px 18px; }
+.side { background: var(--brand-gradient); color: #fff; padding: 24px 18px; display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh; height: 100dvh; overflow-y: auto; }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 19px; margin-bottom: 26px; }
 .brand-tile { width: 40px; height: 40px; border-radius: 11px; background: #fff; display: grid; place-items: center; box-shadow: 0 4px 12px rgba(7,28,63,.25); }
 .nav a { display: block; padding: 10px 12px; border-radius: 10px; color: rgba(255,255,255,.82); text-decoration: none; font-size: 14px; font-weight: 500; margin-bottom: 4px; }
 .nav a:hover { background: rgba(255,255,255,.1); color: #fff; }
 .nav a.active { background: rgba(255,255,255,.18); color: #fff; }
-.side-foot { margin-top: 28px; font-size: 12px; color: rgba(255,255,255,.65); line-height: 1.6; }
+.side-foot { margin-top: auto; padding-top: 16px; border-top: 1px solid rgba(255,255,255,.16); font-size: 12px; color: rgba(255,255,255,.7); line-height: 1.6; overflow-wrap: anywhere; }
 .main { padding: 28px 32px 60px; }
 table { width: 100%; border-collapse: collapse; font-size: 14px; }
 th { text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); padding: 10px 8px; border-bottom: 1px solid var(--line); }
@@ -64,7 +64,8 @@ td { padding: 12px 8px; border-bottom: 1px solid #f1f5f9; }
 .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
 .tabs button { border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 7px 16px; font-size: 13px; cursor: pointer; }
 .tabs button.on { background: var(--brand-gradient); color: #fff; border-color: transparent; }
-html, body { max-width: 100%; overflow-x: hidden; }
+html { overflow-x: hidden; }
+body { max-width: 100%; }
 img, iframe { max-width: 100%; }
 .grid > *, .row > * { min-width: 0; }
 .cols-2 { grid-template-columns: 1fr 1fr; align-items: start; }
@@ -80,11 +81,11 @@ img, iframe { max-width: 100%; }
 
 @media (max-width: 860px) {
   .shell { grid-template-columns: 1fr; }
-  .side { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 10px 12px; padding: 12px 14px; }
+  .side { position: static; height: auto; overflow: visible; display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 10px 12px; padding: 12px 14px; }
   .brand { grid-column: 1; grid-row: 1; margin: 0; font-size: 18px; }
   .brand-tile { width: 36px; height: 36px; border-radius: 10px; }
   .brand-tile img { width: 24px; height: 24px; }
-  .side-foot { display: contents; }
+  .side-foot { display: contents; border: 0; padding: 0; }
   .side-foot > div { display: none; }
   .signout { grid-column: 2; grid-row: 1; margin: 0; }
   .nav { grid-column: 1 / -1; grid-row: 2; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }

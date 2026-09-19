@@ -24,3 +24,4 @@
 22. `fix(api): ignore trailing slashes in FRONTEND_URL when matching CORS origins`
 23. `feat(brand): add refined Globe mail logo, favicon and brand assets, use logo in sidebar and login`
 24. `fix(web): make every page responsive, with a scrollable mobile nav, sign out and workspace switcher on phones, and card layouts for tables`
+25. `fix(web): pin sidebar account and sign out section to the bottom of the panel and keep the sidebar fixed while scrolling`
