@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { api, store } from './api.js';
 import Login from './pages/Login.jsx';
@@ -13,6 +13,23 @@ import Api from './pages/Api.jsx';
 function Shell({ user, workspaces, onLogout }) {
   const nav = useNavigate();
   const current = workspaces.find((w) => String(w.id) === String(store.workspaceId)) || workspaces[0];
+
+  const navRef = useRef(null);
+  // Edge fades on the phone menu grow as you scroll: the left one appears once you move away
+  // from the start, the right one fades out as you reach the end.
+  const updateFade = useCallback(() => {
+    const n = navRef.current;
+    if (!n) return;
+    const left = Math.max(0, Math.min(n.scrollLeft, 36));
+    const right = Math.max(0, Math.min(n.scrollWidth - n.clientWidth - n.scrollLeft, 36));
+    n.style.setProperty('--fl', `${left}px`);
+    n.style.setProperty('--fr', `${right}px`);
+  }, []);
+  useEffect(() => {
+    updateFade();
+    window.addEventListener('resize', updateFade);
+    return () => window.removeEventListener('resize', updateFade);
+  }, [updateFade]);
 
   const { pathname } = useLocation();
   // On phones the menu scrolls sideways, so keep the current page centred in view.
@@ -30,7 +47,7 @@ function Shell({ user, workspaces, onLogout }) {
         <div className="brand">
           <span className="brand-tile"><img src="/logo.svg" width="28" height="28" alt="" /></span> Wynmail
         </div>
-        <nav className="nav">
+        <nav className="nav" ref={navRef} onScroll={updateFade}>
           <NavLink to="/" end>Dashboard</NavLink>
           <NavLink to="/contacts">Contacts</NavLink>
           <NavLink to="/templates">Templates</NavLink>

@@ -31,3 +31,4 @@
 29. `feat(web): add toasts, busy buttons and live campaign status, plus a one-button send flow and list picker`
 30. `test: add API test suite and share one provider throttle between campaigns and API sends`
 31. `fix(web): remove the tall gap in the mobile header, keep the current page centred in the scrollable menu, and stop buttons in form rows from being clipped`
+32. `feat(web): fade the mobile menu edges as it scrolls, left fade grows from the first swipe and right fade clears at the end`
