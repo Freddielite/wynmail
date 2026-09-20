@@ -69,7 +69,15 @@ Create a key on the API page in the app (shown once, revocable, several per work
 
 Limits: 120 requests a minute per key. API emails count toward the workspace daily limit and need an approved sending domain. All provider calls share one throttle (`SEND_GAP_MS`, default 500) so the provider's rate limit is respected.
 
-Tests inside `server`: `npm run test:csv` needs nothing. `test:security`, `test:api`, `test:batch`, `test:forms` and `test:automations` each run against a fresh empty database with `FORCE_PROVIDER=console`. `test:automations` also needs `AUTOMATION_MINUTE_MS=1000` on the server. `test:batch` and `test:forms` also need `RESEND_WEBHOOK_SECRET` set on the server and `LOG` pointing at the server log file.
+Tests inside `server`: `npm run test:csv` needs nothing. `test:security`, `test:api`, `test:batch`, `test:forms`, `test:automations` and `test:quickwins` each run against a fresh empty database with `FORCE_PROVIDER=console`. `test:automations` also needs `AUTOMATION_MINUTE_MS=1000` on the server. `test:domain` needs nothing. `test:quickwins`, `test:batch` and `test:forms` also need `RESEND_WEBHOOK_SECRET` set on the server and `LOG` pointing at the server log file.
+
+## Everyday tools
+
+- **Unblock:** the workspace owner can unblock a bounced or spam-complaint address from Contacts (status filter, or the Blocked addresses card). People who reported spam need an extra confirmation. Unsubscribed people cannot be unblocked this way, they must confirm a signup form.
+- **Domain check** in Settings looks up DKIM, SPF, the bounce MX, DMARC and the tracking domain, and says what to fix. Lookups run in parallel and never block for more than about 4 seconds.
+- **Duplicate** a campaign from the campaign list. **Preview text** is the line inboxes show after the subject, set per campaign and per automation email.
+- **Name fallbacks:** `{{first_name|there}}` uses "there" when the value is empty. Works in subjects, previews, campaigns, automations and API emails.
+- **CSV export** for contacts (with lists, consent details and merge fields) and per-campaign reports. Cells that look like spreadsheet formulas are neutralised.
 
 ## Automations
 

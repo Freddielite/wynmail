@@ -23,6 +23,17 @@ async function request(path, { method = 'GET', body } = {}) {
 
 const ws = (path) => `/api/workspaces/${store.workspaceId}${path}`;
 
+// Downloads a file the API protects with the sign-in token, then hands it to the browser.
+async function download(path, filename) {
+  const res = await fetch(`${BASE}${path}`, { headers: store.token ? { Authorization: `Bearer ${store.token}` } : {} });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Download failed');
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 export const api = {
   base: BASE,
   forgot: (email) => request('/api/auth/forgot', { method: 'POST', body: { email } }),
@@ -76,6 +87,14 @@ export const api = {
   setAutomationStatus: (id, active) => request(ws(`/automations/${id}/status`), { method: 'POST', body: { active } }),
   deleteAutomation: (id) => request(ws(`/automations/${id}`), { method: 'DELETE' }),
   automationRuns: (id) => request(ws(`/automations/${id}/runs`)),
+
+  suppressions: () => request(ws('/suppressions')),
+  unblockContact: (id, confirm) => request(ws(`/contacts/${id}/unblock`), { method: 'POST', body: { confirm } }),
+  unblockAddress: (id, confirm) => request(ws(`/suppressions/${id}/unblock`), { method: 'POST', body: { confirm } }),
+  duplicateCampaign: (id) => request(ws(`/campaigns/${id}/duplicate`), { method: 'POST' }),
+  domainCheck: () => request(ws('/domain-check')),
+  exportContacts: () => download(ws('/contacts/export'), 'contacts.csv'),
+  exportCampaign: (id) => download(ws(`/campaigns/${id}/export`), `campaign-${id}-report.csv`),
 
   campaigns: () => request(ws('/campaigns')),
   createCampaign: (b) => request(ws('/campaigns'), { method: 'POST', body: b }),

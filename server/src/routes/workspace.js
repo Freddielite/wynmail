@@ -13,6 +13,8 @@ import { throttled } from '../throttle.js';
 import { sentToday } from '../usage.js';
 import { rateLimit } from '../rateLimit.js';
 import { parseCsv, readContacts } from '../csv.js';
+import { csvLine } from '../csvout.js';
+import { checkDomain } from '../dnscheck.js';
 import { createResetToken, resetLink } from '../resets.js';
 import { sendSystemEmail, actionEmail } from '../sysmail.js';
 import formsAdmin from './formsAdmin.js';
@@ -134,14 +136,16 @@ router.delete('/lists/:id', async (req, res) => {
 router.get('/contacts', async (req, res) => {
   const listId = /^\d{1,9}$/.test(String(req.query.listId || '')) ? Number(req.query.listId) : null;
   const q = typeof req.query.q === 'string' && req.query.q ? req.query.q.slice(0, 100) : null;
+  const status = ['subscribed', 'unsubscribed', 'bounced', 'complained'].includes(req.query.status) ? req.query.status : null;
   res.json(await many(
     `SELECT DISTINCT c.* FROM contacts c
      LEFT JOIN list_contacts lc ON lc.contact_id = c.id
      WHERE c.workspace_id = $1
        AND ($2::int IS NULL OR lc.list_id = $2::int)
        AND ($3::text IS NULL OR c.email ILIKE '%' || $3 || '%')
+       AND ($4::text IS NULL OR c.status = $4)
      ORDER BY c.id DESC LIMIT 500`,
-    [ws(req), listId, q]
+    [ws(req), listId, q, status]
   ));
 });
 
@@ -223,32 +227,33 @@ router.get('/campaigns', async (req, res) => {
 });
 
 router.post('/campaigns', async (req, res) => {
-  const { name, subject, html, list_id, scheduled_at } = req.body || {};
+  const { name, subject, html, list_id, scheduled_at, preview_text } = req.body || {};
   const subj = cleanText(subject, 300);
   if (!subj || !list_id) return bad(res, 'subject and list_id required');
   if (!(await ownsList(ws(req), Number(list_id)))) return bad(res, 'unknown list');
   const when = scheduled_at ? new Date(scheduled_at) : null;
   if (when && Number.isNaN(when.getTime())) return bad(res, 'invalid schedule time');
   res.json(await one(
-    `INSERT INTO campaigns (workspace_id, name, subject, html, list_id, scheduled_at, status)
-     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-    [ws(req), cleanName(name) || subj, subj, String(html || '').slice(0, MAX_HTML), Number(list_id), when, when ? 'scheduled' : 'draft']
+    `INSERT INTO campaigns (workspace_id, name, subject, html, list_id, scheduled_at, status, preview_text)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+    [ws(req), cleanName(name) || subj, subj, String(html || '').slice(0, MAX_HTML), Number(list_id), when, when ? 'scheduled' : 'draft', cleanText(preview_text, 150)]
   ));
 });
 
 router.put('/campaigns/:id', async (req, res) => {
-  const { name, subject, html, list_id, scheduled_at } = req.body || {};
+  const { name, subject, html, list_id, scheduled_at, preview_text } = req.body || {};
   if (list_id && !(await ownsList(ws(req), Number(list_id)))) return bad(res, 'unknown list');
   const when = scheduled_at ? new Date(scheduled_at) : null;
   if (when && Number.isNaN(when.getTime())) return bad(res, 'invalid schedule time');
   const row = await one(
     `UPDATE campaigns SET name = COALESCE($3, name), subject = COALESCE($4, subject),
        html = COALESCE($5, html), list_id = COALESCE($6, list_id), scheduled_at = $7,
+       preview_text = COALESCE($8, preview_text),
        status = CASE WHEN $7::timestamptz IS NOT NULL THEN 'scheduled' ELSE 'draft' END
      WHERE id = $1 AND workspace_id = $2 AND status IN ('draft','scheduled') RETURNING *`,
     [req.params.id, ws(req), name === undefined ? null : cleanName(name),
      subject === undefined ? null : cleanText(subject, 300), html === undefined ? null : String(html).slice(0, MAX_HTML),
-     list_id ? Number(list_id) : null, when]
+     list_id ? Number(list_id) : null, when, preview_text === undefined ? null : cleanText(preview_text, 150)]
   );
   if (!row) return res.status(404).json({ error: 'not found or already sent' });
   res.json(row);
@@ -278,7 +283,7 @@ router.get('/campaigns/:id/preview', async (req, res) => {
   const built = buildEmail({
     workspace: req.workspace,
     contact: contact || { email: 'preview@example.com', first_name: 'there', attributes: {} },
-    subject: campaign.subject, html: campaign.html, token: 'preview'
+    subject: campaign.subject, html: campaign.html, token: 'preview', preheader: campaign.preview_text
   });
   res.json({ subject: built.subject, html: built.html });
 });
@@ -342,7 +347,7 @@ router.post('/test-email', testLimit, async (req, res) => {
   if ((await sentToday(w.id)) >= (w.daily_limit || 0)) return res.status(429).json({ error: `Daily sending limit reached (${w.daily_limit})` });
 
   const first = (me.name || '').split(' ')[0] || to.split('@')[0];
-  const built = buildEmail({ workspace: w, contact: { email: to, first_name: first, attributes: {} }, subject: `[Test] ${subject}`, html, token: 'preview' });
+  const built = buildEmail({ workspace: w, contact: { email: to, first_name: first, attributes: {} }, subject: `[Test] ${subject}`, html, token: 'preview', preheader: cleanText(req.body?.preview_text, 150) });
   const rec = await one(`INSERT INTO api_emails (workspace_id, to_email, subject, kind) VALUES ($1, $2, $3, 'test') RETURNING id`, [w.id, to, built.subject]);
   try {
     const result = await throttled(() => getProvider(w).send({
@@ -412,6 +417,102 @@ router.delete('/members/:userId', async (req, res) => {
 
 router.use('/forms', formsAdmin);
 router.use('/automations', automationsAdmin);
+
+/* ---------- blocked addresses ---------- */
+async function liftBlock(workspaceId, email) {
+  await query(`DELETE FROM suppressions WHERE workspace_id = $1 AND email = $2`, [workspaceId, email]);
+  await query(`UPDATE contacts SET status = 'subscribed' WHERE workspace_id = $1 AND email = $2 AND status IN ('bounced', 'complained')`, [workspaceId, email]);
+}
+
+router.get('/suppressions', async (req, res) => {
+  res.json(await many(
+    `SELECT s.id, s.email, s.reason, s.created_at, c.id AS contact_id, c.status AS contact_status
+     FROM suppressions s LEFT JOIN contacts c ON c.workspace_id = s.workspace_id AND c.email = s.email
+     WHERE s.workspace_id = $1 ORDER BY s.id DESC LIMIT 200`, [ws(req)]));
+});
+
+// Unblocking affects your sender reputation, so only the workspace owner can do it, and people who
+// reported spam need an explicit confirmation.
+async function unblockGuard(req, res, reason) {
+  if (!(await canManageTeam(req))) { res.status(403).json({ error: 'Only the workspace owner can unblock addresses' }); return false; }
+  if (reason === 'complained' && req.body?.confirm !== true) {
+    bad(res, 'This person reported one of your emails as spam. Confirm that you want to email them again');
+    return false;
+  }
+  return true;
+}
+
+router.post('/suppressions/:id/unblock', async (req, res) => {
+  if (!/^\d{1,9}$/.test(req.params.id)) return bad(res, 'bad id');
+  if (!(await canManageTeam(req))) return res.status(403).json({ error: 'Only the workspace owner can unblock addresses' });
+  const row = await one(`SELECT email, reason FROM suppressions WHERE id = $1 AND workspace_id = $2`, [Number(req.params.id), ws(req)]);
+  if (!row) return res.status(404).json({ error: 'not found' });
+  if (!(await unblockGuard(req, res, row.reason))) return;
+  await liftBlock(ws(req), row.email);
+  res.json({ ok: true });
+});
+
+router.post('/contacts/:id/unblock', async (req, res) => {
+  if (!(await canManageTeam(req))) return res.status(403).json({ error: 'Only the workspace owner can unblock addresses' });
+  const c = await one(`SELECT email, status FROM contacts WHERE id = $1 AND workspace_id = $2`, [req.params.id, ws(req)]);
+  if (!c) return res.status(404).json({ error: 'not found' });
+  if (!['bounced', 'complained'].includes(c.status)) return bad(res, 'This contact is not blocked. Unsubscribed people can only come back by confirming a signup form');
+  if (!(await unblockGuard(req, res, c.status))) return;
+  await liftBlock(ws(req), c.email);
+  res.json({ ok: true });
+});
+
+/* ---------- exports ---------- */
+const exportLimit = rateLimit({ windowMs: 3600000, max: 20, key: (req) => `x${req.workspace.id}` });
+const sendCsv = (res, name, lines) => {
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
+  res.send('\uFEFF' + lines.join('\r\n') + '\r\n');
+};
+
+router.get('/contacts/export', exportLimit, async (req, res) => {
+  const rows = await many(
+    `SELECT c.email, c.first_name, c.last_name, c.status, c.consent_source, c.consent_at, c.created_at, c.attributes,
+       (SELECT string_agg(l.name, '; ' ORDER BY l.name) FROM list_contacts lc JOIN lists l ON l.id = lc.list_id WHERE lc.contact_id = c.id) AS lists
+     FROM contacts c WHERE c.workspace_id = $1 ORDER BY c.id LIMIT 50000`, [ws(req)]);
+  const keys = [...new Set(rows.flatMap((r) => Object.keys(r.attributes || {})))].slice(0, 20);
+  sendCsv(res, 'contacts.csv', [
+    csvLine(['email', 'first_name', 'last_name', 'status', 'lists', 'consent_source', 'consent_at', 'created_at', ...keys]),
+    ...rows.map((r) => csvLine([r.email, r.first_name, r.last_name, r.status, r.lists, r.consent_source, r.consent_at, r.created_at, ...keys.map((k) => (r.attributes || {})[k])]))
+  ]);
+});
+
+router.get('/campaigns/:id/export', exportLimit, async (req, res) => {
+  const c = await one(`SELECT name FROM campaigns WHERE id = $1 AND workspace_id = $2`, [req.params.id, ws(req)]);
+  if (!c) return res.status(404).json({ error: 'not found' });
+  const rows = await many(
+    `SELECT email, status, sent_at, delivered_at, opened_at, open_count, clicked_at, click_count, bounced_at, bounce_type, complained_at, unsubscribed_at, error
+     FROM messages WHERE campaign_id = $1 AND workspace_id = $2 ORDER BY id LIMIT 100000`, [req.params.id, ws(req)]);
+  sendCsv(res, 'campaign-report.csv', [
+    csvLine(['email', 'status', 'sent_at', 'delivered_at', 'opened_at', 'open_count', 'clicked_at', 'click_count', 'bounced_at', 'bounce_type', 'complained_at', 'unsubscribed_at', 'error']),
+    ...rows.map((r) => csvLine([r.email, r.status, r.sent_at, r.delivered_at, r.opened_at, r.open_count, r.clicked_at, r.click_count, r.bounced_at, r.bounce_type, r.complained_at, r.unsubscribed_at, r.error]))
+  ]);
+});
+
+router.post('/campaigns/:id/duplicate', async (req, res) => {
+  const c = await one(`SELECT * FROM campaigns WHERE id = $1 AND workspace_id = $2`, [req.params.id, ws(req)]);
+  if (!c) return res.status(404).json({ error: 'not found' });
+  res.json(await one(
+    `INSERT INTO campaigns (workspace_id, name, subject, html, list_id, preview_text, status) VALUES ($1, $2, $3, $4, $5, $6, 'draft') RETURNING *`,
+    [ws(req), cleanName(`Copy of ${c.name}`, 100), c.subject, c.html, c.list_id, c.preview_text]));
+});
+
+/* ---------- domain check ---------- */
+const domainLimit = rateLimit({ windowMs: 60000, max: 12, key: (req) => `d${req.workspace.id}` });
+router.get('/domain-check', domainLimit, async (req, res) => {
+  const domain = String(req.workspace.sending_domain || '').toLowerCase();
+  if (!domain) return bad(res, 'Your sending domain has not been approved yet. Ask an admin to set it');
+  const tracking = String(req.workspace.tracking_domain || '').toLowerCase();
+  if (domain === 'resend.dev') {
+    return res.json({ domain, checks: [], note: 'You are using the shared Resend test domain, so there are no DNS records to check. Once you verify your own domain, set it as the sending domain and check it here.' });
+  }
+  res.json({ domain, checks: await checkDomain({ domain, tracking }) });
+});
 
 /* ---------- dashboard ---------- */
 router.get('/stats', async (req, res) => {

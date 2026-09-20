@@ -11,7 +11,9 @@
     "test:batch": "node test/batch.mjs",
     "test:csv": "node test/csv.mjs",
     "test:forms": "node test/forms.mjs",
-    "test:automations": "node test/automations.mjs"
+    "test:automations": "node test/automations.mjs",
+    "test:quickwins": "node test/quickwins.mjs",
+    "test:domain": "node test/domain.mjs"
   },
   "keywords": [],
   "author": "",

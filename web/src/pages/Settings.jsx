@@ -9,6 +9,8 @@ export default function Settings({ admin }) {
   const [clearKey, setClearKey] = useState(false);
   const [hookSecret, setHookSecret] = useState('');
   const [clearHook, setClearHook] = useState(false);
+  const [checks, setChecks] = useState(null);
+  const [checkNote, setCheckNote] = useState('');
 
   useEffect(() => { guard(async () => setForm(await api.workspace()))(); }, []);
   if (!form) return <p className="muted">Loading...</p>;
@@ -34,6 +36,7 @@ export default function Settings({ admin }) {
   });
 
   const domain = form.sending_domain || 'yourdomain.com';
+  const checkDomain = guard(async () => { const r = await api.domainCheck(); setChecks(r.checks); setCheckNote(r.note || ''); });
   const hookUrl = `${api.base}/webhooks/resend/${form.id}`;
   const saveBtn = <Btn busyText="Saving..." onClick={save}>Save settings</Btn>;
 
@@ -105,12 +108,28 @@ export default function Settings({ admin }) {
           </div>
 
           <div className="card">
-            <h3>DNS checklist</h3>
-            <p className="muted">Add these at your DNS host, then verify the domain with your provider.</p>
+            <div className="between">
+              <div><h3>DNS checklist</h3><p className="muted">Add these at your DNS host, then check them here.</p></div>
+              <Btn className="btn sm" busyText="Checking..." onClick={checkDomain}>Check my domain</Btn>
+            </div>
+            {checks && checkNote && <p className="muted" style={{ margin: '12px 0' }}>{checkNote}</p>}
+            {checks && (
+              <div style={{ margin: '14px 0' }}>
+                {checks.map((c) => (
+                  <div className="formitem" key={c.key} style={{ marginBottom: 8 }}>
+                    <span className={`pill ${{ ok: 'green', warn: 'amber', missing: 'red', unknown: 'gray' }[c.status]}`}>{{ ok: 'ok', warn: 'improve', missing: 'fix', unknown: 'unknown' }[c.status]}</span>{' '}
+                    <strong>{c.label}</strong>
+                    <div className="muted"><code>{c.host}</code></div>
+                    <div className="muted">{c.detail}</div>
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="table-wrap"><table className="stack">
               <thead><tr><th>Type</th><th>Host</th><th>Value</th></tr></thead>
               <tbody>
-                <tr><td data-label="Type">TXT</td><td data-label="Host">{domain}</td><td data-label="Value">SPF record from your provider</td></tr>
+                <tr><td data-label="Type">TXT</td><td data-label="Host">send.{domain}</td><td data-label="Value">SPF record from your provider</td></tr>
+                <tr><td data-label="Type">MX</td><td data-label="Host">send.{domain}</td><td data-label="Value">Bounce address from your provider</td></tr>
                 <tr><td data-label="Type">TXT</td><td data-label="Host">resend._domainkey.{domain}</td><td data-label="Value">DKIM key from your provider</td></tr>
                 <tr><td data-label="Type">TXT</td><td data-label="Host">_dmarc.{domain}</td><td data-label="Value">v=DMARC1; p=none; rua=mailto:dmarc@{domain}</td></tr>
                 <tr><td data-label="Type">CNAME</td><td data-label="Host">{form.tracking_domain || `track.${domain}`}</td><td data-label="Value">your Wynmail host</td></tr>

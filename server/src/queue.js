@@ -99,7 +99,7 @@ async function sendMessage(workspace, message) {
   }
 
   try {
-    const built = buildEmail({ workspace, contact, subject: campaign.subject, html: campaign.html, token: message.token });
+    const built = buildEmail({ workspace, contact, subject: campaign.subject, html: campaign.html, token: message.token, preheader: campaign.preview_text });
     const result = await getProvider(workspace).send({
       to: contact.email,
       from: `${workspace.from_name || workspace.name} <${workspace.from_email}>`,

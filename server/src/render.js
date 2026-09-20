@@ -11,11 +11,11 @@ const escapeHtml = (s) =>
 export function merge(input, contact, { html = false } = {}) {
   const data = { ...(contact.attributes || {}),
     first_name: contact.first_name || '', last_name: contact.last_name || '', email: contact.email || '' };
-  return String(input || '').replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_, key) => {
-    if (!Object.hasOwn(data, key)) return '';
-    const value = data[key];
-    if (value === undefined || value === null) return '';
-    return html ? escapeHtml(value) : String(value);
+  // {{first_name}} or {{first_name|there}}: the text after the bar is used when the value is empty.
+  return String(input || '').replace(/\{\{\s*([\w.]+)\s*(?:\|\s*([^{}]*?)\s*)?\}\}/g, (_, key, fallback) => {
+    let value = Object.hasOwn(data, key) && data[key] !== undefined && data[key] !== null ? String(data[key]) : '';
+    if (value.trim() === '' && fallback !== undefined) value = fallback;
+    return html ? escapeHtml(value) : value;
   });
 }
 
@@ -48,15 +48,19 @@ export function complianceFooter(workspace, base, token) {
   </div>`;
 }
 
-export function buildEmail({ workspace, contact, subject, html, token }) {
+export function buildEmail({ workspace, contact, subject, html, token, preheader = '' }) {
   const base = trackingBase(workspace);
   let body = merge(html, contact, { html: true });
   body = rewriteLinks(body, base, token);
   body += complianceFooter(workspace, base, token);
   body += `<img src="${base}/t/o/${token}.png" width="1" height="1" alt="" style="display:none">`;
+  // The preview text inboxes show after the subject. Hidden in the email itself, padded so body text does not leak in.
+  const pre = preheader
+    ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all">${escapeHtml(merge(preheader, contact))}${'&nbsp;&zwnj;'.repeat(90)}</div>`
+    : '';
   return {
     subject: merge(subject, contact).replace(/[\r\n]+/g, ' ').slice(0, 300),
-    html: `<!doctype html><html><body style="margin:0;padding:24px;background:#f8fafc">${body}</body></html>`,
+    html: `<!doctype html><html><body style="margin:0;padding:24px;background:#f8fafc">${pre}${body}</body></html>`,
     text: body.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
     headers: {
       'List-Unsubscribe': `<${base}/t/u/${token}>`,

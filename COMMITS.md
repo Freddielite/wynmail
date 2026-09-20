@@ -52,3 +52,9 @@
 50. `feat(web): add Automations page with sequence builder, welcome email starter, live stats and people panel`
 51. `feat(forms): start welcome sequences when a signup is confirmed`
 52. `test: add automations test suite`
+53. `feat(contacts): add Unblock for bounced and spam-complaint addresses, a status filter and a Blocked addresses list, owner only`
+54. `feat(settings): add a domain checker for DKIM, SPF, bounce MX, DMARC and tracking domain, with parallel lookups`
+55. `feat(campaigns): add Duplicate, preview text on campaigns and automation emails, and {{name|fallback}} merge fallbacks`
+56. `feat(export): add spreadsheet-safe CSV export for contacts and campaign reports`
+57. `fix(api): add the missing messages.unsubscribed_at column so /v1/campaigns works and unsubscribes are counted per campaign`
+58. `test: add quick wins and domain checker test suites, and cover the campaign stats API`

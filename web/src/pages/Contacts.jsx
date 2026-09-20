@@ -1,12 +1,18 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api.js';
-import { Btn, useGuard } from '../ui.jsx';
+import { Btn, useGuard, when } from '../ui.jsx';
+
+const statusClass = { subscribed: 'green', unsubscribed: 'amber', bounced: 'red', complained: 'red' };
 
 export default function Contacts() {
   const guard = useGuard();
   const [lists, setLists] = useState([]);
   const [contacts, setContacts] = useState([]);
+  const [blocked, setBlocked] = useState([]);
+  const [canManage, setCanManage] = useState(false);
+  const [showBlocked, setShowBlocked] = useState(false);
   const [listId, setListId] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
   const [target, setTarget] = useState('');
   const [search, setSearch] = useState('');
   const [newList, setNewList] = useState('');
@@ -14,12 +20,13 @@ export default function Contacts() {
   const [single, setSingle] = useState({ email: '', first_name: '', last_name: '' });
 
   const load = async () => {
-    setLists(await api.lists());
-    const q = [listId && `listId=${listId}`, search && `q=${encodeURIComponent(search)}`].filter(Boolean).join('&');
-    setContacts(await api.contacts(q ? `?${q}` : ''));
+    const q = [listId && `listId=${listId}`, statusFilter && `status=${statusFilter}`, search && `q=${encodeURIComponent(search)}`].filter(Boolean).join('&');
+    const [l, c, b] = await Promise.all([api.lists(), api.contacts(q ? `?${q}` : ''), api.suppressions()]);
+    setLists(l); setContacts(c); setBlocked(b);
   };
 
-  useEffect(() => { guard(load)(); setTarget(listId); }, [listId]);
+  useEffect(() => { guard(load)(); setTarget(listId); }, [listId, statusFilter]);
+  useEffect(() => { api.members().then((m) => setCanManage(m.can_manage)).catch(() => {}); }, []);
 
   const targetName = lists.find((l) => String(l.id) === String(target))?.name;
 
@@ -47,7 +54,7 @@ export default function Contacts() {
     const bits = [`Imported ${res.imported}${targetName ? ` into ${targetName}` : ''}`];
     if (res.duplicates) bits.push(`${res.duplicates} duplicate${res.duplicates === 1 ? '' : 's'} ignored`);
     if (res.skipped) bits.push(`${res.skipped} skipped${res.errors?.[0] ? ` (row ${res.errors[0].row}: ${res.errors[0].reason})` : ''}`);
-    return bits.join(', ')
+    return bits.join(', ');
   });
 
   const remove = (id) => guard(async () => {
@@ -55,6 +62,26 @@ export default function Contacts() {
     await api.deleteContact(id);
     await load();
     return 'Contact deleted';
+  });
+
+  // Unblocking changes your sender reputation, so it always asks first.
+  const askUnblock = (email, reason) => {
+    const text = reason === 'complained'
+      ? `${email} reported one of your emails as spam. Emailing them again can hurt your sender reputation. Unblock anyway?`
+      : `${email} bounced, which usually means the address does not work. Only unblock it if you know it is valid now. Unblock?`;
+    return window.confirm(text);
+  };
+  const unblockContact = (c) => guard(async () => {
+    if (!askUnblock(c.email, c.status)) return;
+    await api.unblockContact(c.id, true);
+    await load();
+    return `${c.email} can receive emails again`;
+  });
+  const unblockAddress = (b) => guard(async () => {
+    if (!askUnblock(b.email, b.reason)) return;
+    await api.unblockAddress(b.id, true);
+    await load();
+    return `${b.email} can receive emails again`;
   });
 
   const readFile = (e) => {
@@ -120,30 +147,71 @@ export default function Contacts() {
           </div>
         </div>
 
-        <div className="card">
-          <div className="between" style={{ marginBottom: 12 }}>
-            <h3>{contacts.length} shown</h3>
-            <div className="row">
-              <input placeholder="Search email" value={search} onChange={(e) => setSearch(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && guard(load)()} />
-              <Btn className="btn ghost sm" busyText="Searching..." onClick={guard(load)}>Search</Btn>
+        <div className="grid">
+          <div className="card">
+            <div className="between" style={{ marginBottom: 12 }}>
+              <h3>{contacts.length} shown</h3>
+              <div className="row">
+                <input placeholder="Search email" value={search} onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && guard(load)()} />
+                <Btn className="btn ghost sm" busyText="Searching..." onClick={guard(load)}>Search</Btn>
+              </div>
+            </div>
+            <div className="row" style={{ marginBottom: 12 }}>
+              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ maxWidth: 220 }}>
+                <option value="">Any status</option>
+                <option value="subscribed">Subscribed</option>
+                <option value="unsubscribed">Unsubscribed</option>
+                <option value="bounced">Bounced</option>
+                <option value="complained">Reported spam</option>
+              </select>
+              <Btn className="btn ghost sm" busyText="Preparing..." onClick={guard(async () => { await api.exportContacts(); return 'Contacts exported'; })}>Export CSV</Btn>
+            </div>
+            <div className="table-wrap">
+              <table className="stack">
+                <thead><tr><th>Email</th><th>Name</th><th>Status</th><th></th></tr></thead>
+                <tbody>
+                  {contacts.map((c) => (
+                    <tr key={c.id}>
+                      <td data-label="Email">{c.email}</td>
+                      <td data-label="Name">{[c.first_name, c.last_name].filter(Boolean).join(' ') || '-'}</td>
+                      <td data-label="Status"><span className={`pill ${statusClass[c.status] || 'gray'}`}>{c.status}</span></td>
+                      <td className="actions">
+                        {canManage && ['bounced', 'complained'].includes(c.status) && (
+                          <Btn className="btn ghost sm" busyText="Unblocking..." onClick={unblockContact(c)}>Unblock</Btn>
+                        )}{' '}
+                        <Btn className="btn danger sm" busyText="Deleting..." onClick={remove(c.id)}>Delete</Btn>
+                      </td>
+                    </tr>
+                  ))}
+                  {!contacts.length && <tr><td colSpan="4" className="muted">No contacts match.</td></tr>}
+                </tbody>
+              </table>
             </div>
           </div>
-          <div className="table-wrap">
-            <table className="stack">
-              <thead><tr><th>Email</th><th>Name</th><th>Status</th><th></th></tr></thead>
-              <tbody>
-                {contacts.map((c) => (
-                  <tr key={c.id}>
-                    <td data-label="Email">{c.email}</td>
-                    <td data-label="Name">{[c.first_name, c.last_name].filter(Boolean).join(' ') || '-'}</td>
-                    <td data-label="Status"><span className={`pill ${c.status === 'subscribed' ? 'green' : c.status === 'unsubscribed' ? 'amber' : 'red'}`}>{c.status}</span></td>
-                    <td className="actions"><Btn className="btn danger sm" busyText="Deleting..." onClick={remove(c.id)}>Delete</Btn></td>
-                  </tr>
-                ))}
-                {!contacts.length && <tr><td colSpan="4" className="muted">No contacts yet.</td></tr>}
-              </tbody>
-            </table>
+
+          <div className="card">
+            <div className="between">
+              <div><h3>Blocked addresses ({blocked.length})</h3><p className="muted" style={{ marginTop: 2 }}>Bounced or reported spam. Wynmail never emails these.</p></div>
+              <button className="btn ghost sm" onClick={() => setShowBlocked(!showBlocked)}>{showBlocked ? 'Hide' : 'Show'}</button>
+            </div>
+            {showBlocked && (
+              <div className="table-wrap" style={{ marginTop: 12 }}>
+                <table className="stack">
+                  <thead><tr><th>Address</th><th>Reason</th><th>Since</th><th></th></tr></thead>
+                  <tbody>
+                    {blocked.map((b) => (
+                      <tr key={b.id}>
+                        <td data-label="Address">{b.email}</td>
+                        <td data-label="Reason"><span className="pill red">{b.reason === 'complained' ? 'reported spam' : 'bounced'}</span></td>
+                        <td data-label="Since">{when(b.created_at)}</td>
+                        <td className="actions">{canManage && <Btn className="btn ghost sm" busyText="Unblocking..." onClick={unblockAddress(b)}>Unblock</Btn>}</td>
+                      </tr>
+                    ))}
+                    {!blocked.length && <tr><td colSpan="4" className="muted">Nothing is blocked.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       </div>

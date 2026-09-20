@@ -41,6 +41,7 @@ async function unsubscribe(token) {
   const message = await findMessage(token);
   if (!message) return null;
   await query(`UPDATE contacts SET status = 'unsubscribed', unsubscribed_at = now() WHERE id = $1 AND status = 'subscribed'`, [message.contact_id]);
+  await query(`UPDATE messages SET unsubscribed_at = COALESCE(unsubscribed_at, now()) WHERE id = $1`, [message.id]);
   await query(`INSERT INTO events (workspace_id, message_id, type) VALUES ($1, $2, 'unsubscribe')`, [message.workspace_id, message.id]);
   return message;
 }

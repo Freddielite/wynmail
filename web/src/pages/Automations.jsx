@@ -7,7 +7,7 @@ const WELCOME = `<h1 style="color:#0b2a5b">Welcome, {{first_name}}!</h1>
 <p><a href="https://wyntek.ng" style="background:#1d4ed8;color:#fff;padding:12px 22px;border-radius:999px;text-decoration:none;display:inline-block">Visit our website</a></p>`;
 
 const UNITS = { minutes: 1, hours: 60, days: 1440 };
-const newStep = (over = {}) => ({ id: null, value: 0, unit: 'minutes', subject: '', html: '', stats: null, ...over });
+const newStep = (over = {}) => ({ id: null, value: 0, unit: 'minutes', subject: '', preview_text: '', html: '', stats: null, ...over });
 const DEFAULT = () => ({ name: 'Welcome email', list_id: '', include_imports: false, active: true,
   steps: [newStep({ subject: 'Welcome, {{first_name}}!', html: WELCOME })] });
 
@@ -54,7 +54,7 @@ export default function Automations() {
     if (!draft.list_id) throw new Error('Choose the list that starts it');
     const body = {
       name: draft.name, list_id: Number(draft.list_id), include_imports: draft.include_imports, active: draft.active,
-      steps: draft.steps.map((s) => ({ delay_minutes: Math.round(Number(s.value || 0) * UNITS[s.unit]), subject: s.subject, html: s.html }))
+      steps: draft.steps.map((s) => ({ delay_minutes: Math.round(Number(s.value || 0) * UNITS[s.unit]), subject: s.subject, preview_text: s.preview_text, html: s.html }))
     };
     if (editing) await api.updateAutomation(editing, body); else await api.createAutomation(body);
     const msg = editing ? 'Automation saved' : draft.active ? 'Automation is on. New people on the list will get these emails' : 'Automation saved, currently paused';
@@ -67,7 +67,7 @@ export default function Automations() {
     const a = await api.automation(id);
     setEditing(a.id);
     setDraft({ name: a.name, list_id: a.list_id || '', include_imports: a.include_imports, active: a.status === 'active',
-      steps: a.steps.map((s) => newStep({ id: s.id, ...splitDelay(s.delay_minutes), subject: s.subject, html: s.html, stats: { sent: s.sent, opened: s.opened, clicked: s.clicked } })) });
+      steps: a.steps.map((s) => newStep({ id: s.id, ...splitDelay(s.delay_minutes), subject: s.subject, preview_text: s.preview_text || '', html: s.html, stats: { sent: s.sent, opened: s.opened, clicked: s.clicked } })) });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   });
 
@@ -94,7 +94,7 @@ export default function Automations() {
   const sendTest = (s) => guard(async () => {
     if (!s.subject.trim()) throw new Error('Add a subject first');
     if (!s.html.trim()) throw new Error('Add some content first');
-    const res = await api.testEmail({ subject: s.subject, html: s.html });
+    const res = await api.testEmail({ subject: s.subject, html: s.html, preview_text: s.preview_text });
     return `Test sent to ${res.to}. Check your inbox and spam`;
   });
 
@@ -149,6 +149,7 @@ export default function Automations() {
                 <span>{Number(s.value) === 0 ? (i === 0 ? 'right after they join' : 'right after the previous email') : (i === 0 ? 'after they join' : 'after the previous email')}</span>
               </div>
               <div className="field"><label>Subject</label><input value={s.subject} onChange={(e) => setStep(i, { subject: e.target.value })} placeholder="Welcome, {{first_name}}!" /></div>
+              <div className="field"><label>Preview text (optional)</label><input value={s.preview_text} maxLength={150} onChange={(e) => setStep(i, { preview_text: e.target.value })} placeholder="The short line inboxes show after the subject" /></div>
               {templates.length > 0 && (
                 <div className="field"><label>Start from a template</label>
                   <select value="" onChange={(e) => useTemplate(i, e.target.value)}>

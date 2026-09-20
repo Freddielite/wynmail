@@ -44,6 +44,21 @@ check('missing content rejected', (await call('POST', '/v1/emails', { key: KEY, 
 const recent = await call('GET', '/api/workspaces/1/api-emails', { token: A });
 check('recent API emails are logged', recent.data.length === 1 && recent.data[0].status === 'sent');
 
+// campaign stats endpoints
+const cl = (await call('POST', '/api/workspaces/1/lists', { token: A, body: { name: 'Stats list' } })).data;
+await call('POST', '/v1/contacts', { key: KEY, body: { email: 'stat@example.com', first_name: 'Stat', list_ids: [cl.id] } });
+const cc = (await call('POST', '/api/workspaces/1/campaigns', { token: A, body: { subject: 'Stats', html: '<p>Hi</p>', list_id: cl.id } })).data;
+await call('POST', `/api/workspaces/1/campaigns/${cc.id}/send`, { token: A });
+await new Promise((r) => setTimeout(r, 4500));
+const camps = await call('GET', '/v1/campaigns', { key: KEY });
+const mine = camps.data.data?.find((c) => c.id === cc.id);
+check('campaign list endpoint returns stats', camps.status === 200 && mine?.total === 1 && mine.sent === 1 && 'unsubscribed' in mine && 'bounced' in mine, JSON.stringify(camps.data).slice(0, 300));
+const tok = (await call('GET', `/api/workspaces/1/campaigns/${cc.id}/messages`, { token: A })).data[0].token;
+await fetch(`${BASE}/t/u/${tok}`, { method: 'POST' });
+const one1 = await call('GET', `/v1/campaigns/${cc.id}`, { key: KEY });
+check('single campaign endpoint counts unsubscribes', one1.status === 200 && one1.data.unsubscribed === 1, JSON.stringify(one1.data));
+check('unknown campaign is a 404', (await call('GET', '/v1/campaigns/99999', { key: KEY })).status === 404);
+
 // tenant isolation
 const OC = (await call('POST', '/api/auth/login', { body: { email: 'o@acme.ng', password: 'acme-pass-99' } })).data.token;
 const W2 = other.data.id;

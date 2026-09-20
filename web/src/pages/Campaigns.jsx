@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { Btn, useGuard, usePolling, when } from '../ui.jsx';
 
-const blank = { name: '', subject: '', html: '', list_id: '', scheduled_at: '', template_id: '' };
+const blank = { name: '', subject: '', preview_text: '', html: '', list_id: '', scheduled_at: '', template_id: '' };
 const outcome = (m) => {
   if (m.complained_at) return { label: 'spam complaint', cls: 'red' };
   if (m.bounced_at) return { label: m.bounce_type === 'Permanent' ? 'bounced' : 'soft bounce', cls: m.bounce_type === 'Permanent' ? 'red' : 'amber' };
@@ -54,7 +54,7 @@ export default function Campaigns() {
     if (!draft.subject.trim()) throw new Error('Add a subject first');
     if (!draft.list_id) throw new Error('Choose a list first');
     if (asSend && !draft.html.trim()) throw new Error('Add some content first, the email is empty');
-    const body = { name: draft.name || draft.subject, subject: draft.subject, html: draft.html,
+    const body = { name: draft.name || draft.subject, subject: draft.subject, html: draft.html, preview_text: draft.preview_text,
       list_id: Number(draft.list_id), scheduled_at: scheduleAt };
     if (editing) { await api.updateCampaign(editing, body); return editing; }
     const created = await api.createCampaign(body);
@@ -65,7 +65,7 @@ export default function Campaigns() {
   const sendTest = guard(async () => {
     if (!draft.subject.trim()) throw new Error('Add a subject first');
     if (!draft.html.trim()) throw new Error('Add some content first');
-    const res = await api.testEmail({ subject: draft.subject, html: draft.html });
+    const res = await api.testEmail({ subject: draft.subject, html: draft.html, preview_text: draft.preview_text });
     return `Test sent to ${res.to}. Check your inbox and spam`;
   });
 
@@ -96,11 +96,18 @@ export default function Campaigns() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   });
 
+  const duplicate = (c) => guard(async () => {
+    const copy = await api.duplicateCampaign(c.id);
+    await loadAll();
+    edit(copy);
+    return `Copy created. Edit it below, then send`;
+  });
+
   const openReport = (c) => guard(async () => { setDetail(c); setMessages(await api.campaignMessages(c.id)); });
 
   const edit = (c) => {
     setEditing(c.id);
-    setDraft({ name: c.name, subject: c.subject, html: c.html, list_id: c.list_id || '', scheduled_at: '', template_id: '' });
+    setDraft({ name: c.name, subject: c.subject, preview_text: c.preview_text || '', html: c.html, list_id: c.list_id || '', scheduled_at: '', template_id: '' });
     setPreview(c.html);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -114,7 +121,10 @@ export default function Campaigns() {
         <div className="card">
           <h3>{editing ? `Editing campaign #${editing}` : 'New campaign'}</h3>
           <div className="field" style={{ marginTop: 12 }}><label>Name</label><input value={draft.name} onChange={set('name')} /></div>
-          <div className="field"><label>Subject</label><input placeholder="Hello {{first_name}}" value={draft.subject} onChange={set('subject')} /></div>
+          <div className="field"><label>Subject</label><input placeholder="Hello {{first_name|there}}" value={draft.subject} onChange={set('subject')} />
+            <div className="muted" style={{ marginTop: 4 }}>Tip: <code>{'{{first_name|there}}'}</code> uses "there" when a contact has no first name.</div>
+          </div>
+          <div className="field"><label>Preview text (optional)</label><input placeholder="The short line inboxes show after the subject" maxLength={150} value={draft.preview_text} onChange={set('preview_text')} /></div>
           <div className="row" style={{ marginBottom: 14, alignItems: 'flex-start' }}>
             <div style={{ flex: 1 }}>
               <label>List</label>
@@ -187,6 +197,7 @@ export default function Campaigns() {
                   <td className="actions">
                     <Btn className="btn ghost sm" busyText="Loading..." onClick={showPreview(c.id)}>Preview</Btn>{' '}
                     <Btn className="btn ghost sm" busyText="Loading..." onClick={openReport(c)}>Report</Btn>{' '}
+                    <Btn className="btn ghost sm" busyText="Copying..." onClick={duplicate(c)}>Duplicate</Btn>{' '}
                     {['draft', 'scheduled'].includes(c.status) && (
                       <>
                         <button className="btn ghost sm" onClick={() => edit(c)}>Edit</button>{' '}
@@ -206,7 +217,10 @@ export default function Campaigns() {
         <div className="card" style={{ marginTop: 18 }}>
           <div className="between">
             <h3>Report: {detail.name}</h3>
-            <button className="btn ghost sm" onClick={() => setDetail(null)}>Close</button>
+            <div className="row">
+              <Btn className="btn ghost sm" busyText="Preparing..." onClick={guard(async () => { await api.exportCampaign(detail.id); return 'Report exported'; })}>Download CSV</Btn>
+              <button className="btn ghost sm" onClick={() => setDetail(null)}>Close</button>
+            </div>
           </div>
           <div className="table-wrap" style={{ marginTop: 12 }}>
             <table className="stack">
