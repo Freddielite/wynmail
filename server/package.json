@@ -9,7 +9,8 @@
     "test:security": "node test/security.mjs",
     "test:api": "node test/api.mjs",
     "test:batch": "node test/batch.mjs",
-    "test:csv": "node test/csv.mjs"
+    "test:csv": "node test/csv.mjs",
+    "test:forms": "node test/forms.mjs"
   },
   "keywords": [],
   "author": "",

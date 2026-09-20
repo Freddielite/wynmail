@@ -42,3 +42,8 @@
 40. `fix(settings): stop saving the text "null" as the tracking domain, repair existing rows, and fall back to the app URL for email links`
 41. `fix(campaigns): show how many contacts in a list can actually receive, and why others are skipped`
 42. `fix(campaigns): refuse to send or schedule a campaign with no content`
+43. `feat(forms): add signup forms with hosted pages, embeds and a plain HTML option`
+44. `feat(forms): add double opt-in confirmation by email with a scanner-safe confirm page and consent records`
+45. `feat(forms): protect signups with honeypot, timing token, rate limits and uniform responses`
+46. `feat(web): add Forms page with live preview, embed code and signup log`
+47. `test: add signup forms test suite`

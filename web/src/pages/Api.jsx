@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api.js';
-import { Btn, CopyBtn, useGuard, usePolling, when } from '../ui.jsx';
+import { Btn, CodeBlock, CopyBtn, useGuard, usePolling, when } from '../ui.jsx';
 
 const ENDPOINTS = [
   ['POST', '/v1/emails', 'Send one email to one person'],
@@ -11,15 +11,6 @@ const ENDPOINTS = [
   ['GET', '/v1/campaigns', 'List campaigns with sent, open and click counts'],
   ['GET', '/v1/campaigns/{id}', 'One campaign with its stats']
 ];
-
-function Code({ title, text }) {
-  return (
-    <div className="codeblock">
-      <div className="codehead"><strong>{title}</strong><CopyBtn text={text} /></div>
-      <pre className="code">{text}</pre>
-    </div>
-  );
-}
 
 export default function Api() {
   const guard = useGuard();
@@ -148,11 +139,11 @@ export default function Api() {
             <h3>Quick start</h3>
             {created && <p className="muted" style={{ margin: '4px 0 12px' }}>These examples already use your new key.</p>}
             <div style={{ marginTop: 12 }}>
-              <Code title="Send an email" text={sendSample} />
+              <CodeBlock title="Send an email" text={sendSample} />
               <p className="muted" style={{ margin: '-8px 0 18px' }}>Single emails have no unsubscribe footer and no link tracking. Use <code>template_id</code> instead of <code>html</code> to send a saved template. Addresses that bounced or reported spam are blocked with a 422.</p>
-              <Code title="Add a contact" text={contactSample} />
-              <Code title="Unsubscribe a contact" text={unsubSample} />
-              <Code title="Read campaign stats" text={listSample} />
+              <CodeBlock title="Add a contact" text={contactSample} />
+              <CodeBlock title="Unsubscribe a contact" text={unsubSample} />
+              <CodeBlock title="Read campaign stats" text={listSample} />
             </div>
           </div>
 

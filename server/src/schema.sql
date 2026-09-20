@@ -195,3 +195,51 @@ ALTER TABLE password_resets ENABLE ROW LEVEL SECURITY;
 
 -- Repair rows saved with the literal text "null" as the tracking domain.
 UPDATE workspaces SET tracking_domain = '' WHERE lower(tracking_domain) = 'null';
+
+ALTER TABLE contacts ADD COLUMN IF NOT EXISTS consent_text TEXT;
+ALTER TABLE contacts ADD COLUMN IF NOT EXISTS consent_ip TEXT;
+ALTER TABLE contacts ADD COLUMN IF NOT EXISTS consent_form_id INT;
+
+CREATE TABLE IF NOT EXISTS forms (
+  id SERIAL PRIMARY KEY,
+  workspace_id INT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  slug TEXT UNIQUE NOT NULL,
+  list_id INT REFERENCES lists(id) ON DELETE SET NULL,
+  title TEXT NOT NULL DEFAULT 'Subscribe',
+  description TEXT NOT NULL DEFAULT '',
+  button_label TEXT NOT NULL DEFAULT 'Subscribe',
+  ask_names BOOLEAN NOT NULL DEFAULT true,
+  consent_text TEXT NOT NULL DEFAULT 'I agree to receive emails and understand I can unsubscribe at any time.',
+  double_optin BOOLEAN NOT NULL DEFAULT true,
+  success_message TEXT NOT NULL DEFAULT 'Thanks! Check your inbox to confirm your subscription.',
+  redirect_url TEXT NOT NULL DEFAULT '',
+  confirm_subject TEXT NOT NULL DEFAULT 'Confirm your subscription',
+  confirm_body TEXT NOT NULL DEFAULT 'Please confirm your email address to finish subscribing.',
+  active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- One row per signup attempt: a pending confirmation, a confirmed subscriber, or an expired link.
+CREATE TABLE IF NOT EXISTS form_signups (
+  id SERIAL PRIMARY KEY,
+  workspace_id INT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  form_id INT NOT NULL REFERENCES forms(id) ON DELETE CASCADE,
+  email TEXT NOT NULL,
+  first_name TEXT,
+  last_name TEXT,
+  token_hash TEXT UNIQUE,
+  consent_text TEXT NOT NULL,
+  ip TEXT,
+  user_agent TEXT,
+  email_status TEXT NOT NULL DEFAULT 'none',
+  email_error TEXT,
+  expires_at TIMESTAMPTZ,
+  confirmed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_form_signups_form ON form_signups (form_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_form_signups_email ON form_signups (workspace_id, email);
+ALTER TABLE forms ENABLE ROW LEVEL SECURITY;
+ALTER TABLE form_signups ENABLE ROW LEVEL SECURITY;

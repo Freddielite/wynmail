@@ -87,4 +87,13 @@ export function CopyBtn({ text, label = 'Copy' }) {
   return <button type="button" className="btn ghost sm" onClick={copy}>{done ? 'Copied' : label}</button>;
 }
 
+export function CodeBlock({ title, text }) {
+  return (
+    <div className="codeblock">
+      <div className="codehead"><strong>{title}</strong><CopyBtn text={text} /></div>
+      <pre className="code">{text}</pre>
+    </div>
+  );
+}
+
 export const when = (v) => (v ? new Date(v).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'Never');

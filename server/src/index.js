@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-import { migrate } from './db.js';
+import { migrate, query } from './db.js';
 import { requireAuth, requireWorkspace } from './auth.js';
 import authRoutes from './routes/auth.js';
 import adminRoutes from './routes/admin.js';
@@ -10,6 +10,7 @@ import workspaceRoutes from './routes/workspace.js';
 import trackRoutes from './routes/track.js';
 import v1Routes from './routes/v1.js';
 import webhookRoutes from './routes/webhooks.js';
+import formRoutes from './routes/forms.js';
 import { startWorker } from './queue.js';
 
 const app = express();
@@ -24,6 +25,7 @@ const apiCors = cors({ origin: origins });
 
 app.get('/health', (_req, res) => res.json({ ok: true, service: 'wynmail' }));
 app.use('/t', trackRoutes);
+app.use(formRoutes);
 app.use('/v1', v1Routes);
 app.use('/api', apiCors);
 app.use('/api/auth', authRoutes);
@@ -39,5 +41,7 @@ app.use((err, _req, res, _next) => {
 
 const port = Number(process.env.PORT || 4000);
 await migrate();
+// Unconfirmed signups are personal data we no longer need after their link expires plus 30 days.
+setInterval(() => query(`DELETE FROM form_signups WHERE confirmed_at IS NULL AND expires_at < now() - interval '30 days'`).catch(() => {}), 3600000).unref();
 if (process.env.RUN_WORKER !== '0') startWorker();
 app.listen(port, () => console.log(`Wynmail API on :${port}`));

@@ -46,7 +46,7 @@ router.get('/lists', async (req, res) => {
 
 /* ---------- contacts ---------- */
 async function contactView(workspaceId, email) {
-  const c = await one(`SELECT id, email, first_name, last_name, status, attributes, created_at, unsubscribed_at FROM contacts WHERE workspace_id = $1 AND email = $2`, [workspaceId, email]);
+  const c = await one(`SELECT id, email, first_name, last_name, status, attributes, consent_source, consent_at, created_at, unsubscribed_at FROM contacts WHERE workspace_id = $1 AND email = $2`, [workspaceId, email]);
   if (!c) return null;
   const lists = await many(`SELECT lc.list_id FROM list_contacts lc WHERE lc.contact_id = $1`, [c.id]);
   return { ...c, list_ids: lists.map((l) => l.list_id) };

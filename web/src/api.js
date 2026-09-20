@@ -63,6 +63,12 @@ export const api = {
   revokeApiKey: (id) => request(ws(`/api-keys/${id}`), { method: 'DELETE' }),
   apiEmails: () => request(ws('/api-emails')),
 
+  forms: () => request(ws('/forms')),
+  createForm: (b) => request(ws('/forms'), { method: 'POST', body: b }),
+  updateForm: (id, b) => request(ws(`/forms/${id}`), { method: 'PUT', body: b }),
+  deleteForm: (id) => request(ws(`/forms/${id}`), { method: 'DELETE' }),
+  formSignups: (id) => request(ws(`/forms/${id}/signups`)),
+
   campaigns: () => request(ws('/campaigns')),
   createCampaign: (b) => request(ws('/campaigns'), { method: 'POST', body: b }),
   updateCampaign: (id, b) => request(ws(`/campaigns/${id}`), { method: 'PUT', body: b }),

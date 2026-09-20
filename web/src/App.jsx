@@ -10,6 +10,7 @@ import Settings from './pages/Settings.jsx';
 import Clients from './pages/Clients.jsx';
 import Api from './pages/Api.jsx';
 import Team from './pages/Team.jsx';
+import Forms from './pages/Forms.jsx';
 
 function Shell({ user, workspaces, onLogout }) {
   const nav = useNavigate();
@@ -51,6 +52,7 @@ function Shell({ user, workspaces, onLogout }) {
         <nav className="nav" ref={navRef} onScroll={updateFade}>
           <NavLink to="/" end>Dashboard</NavLink>
           <NavLink to="/contacts">Contacts</NavLink>
+          <NavLink to="/forms">Forms</NavLink>
           <NavLink to="/templates">Templates</NavLink>
           <NavLink to="/campaigns">Campaigns</NavLink>
           <NavLink to="/api">API</NavLink>
@@ -78,6 +80,7 @@ function Shell({ user, workspaces, onLogout }) {
         <Routes>
           <Route path="/" element={<Dashboard workspace={current} />} />
           <Route path="/contacts" element={<Contacts />} />
+          <Route path="/forms" element={<Forms />} />
           <Route path="/templates" element={<Templates />} />
           <Route path="/campaigns" element={<Campaigns />} />
           <Route path="/api" element={<Api />} />

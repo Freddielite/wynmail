@@ -69,7 +69,18 @@ Create a key on the API page in the app (shown once, revocable, several per work
 
 Limits: 120 requests a minute per key. API emails count toward the workspace daily limit and need an approved sending domain. All provider calls share one throttle (`SEND_GAP_MS`, default 500) so the provider's rate limit is respected.
 
-Tests inside `server`: `npm run test:csv` needs nothing. `test:security`, `test:api` and `test:batch` each run against a fresh empty database with `FORCE_PROVIDER=console`. `test:batch` also needs `RESEND_WEBHOOK_SECRET` set on the server and `LOG` pointing at the server log file.
+Tests inside `server`: `npm run test:csv` needs nothing. `test:security`, `test:api`, `test:batch` and `test:forms` each run against a fresh empty database with `FORCE_PROVIDER=console`. `test:batch` and `test:forms` also need `RESEND_WEBHOOK_SECRET` set on the server and `LOG` pointing at the server log file.
+
+## Signup forms
+
+The Forms page creates public signup forms that feed a list. Each form has a hosted page (`/f/<slug>` on your API or tracking domain), an iframe embed with auto-resize, and a plain HTML snippet for custom designs.
+
+- Double opt-in is on by default. A signup is only "pending" until the person clicks the link in the confirmation email. Opening the link only shows a button, so mail scanners cannot confirm anyone. Links work once and expire after 48 hours.
+- Every confirmed contact keeps a consent record: the exact sentence they agreed to, the time, the form and the IP address. Deleting a contact also deletes their signup log.
+- Someone who unsubscribed can only come back by confirming, even on a single opt-in form. Addresses that bounced or complained are silently ignored.
+- Abuse protection: a hidden honeypot field, a signed timing token, per-IP and per-address rate limits, and the same success answer whether or not the address is already known.
+- Confirmation emails send from the workspace's approved sender and count toward the daily limit. Failed confirmation emails show their reason in the Signups panel.
+- Embeds need an https or http page. Browsers do not treat `file://` or `about:blank` pages as valid embedders.
 
 ## Bounces and spam complaints
 

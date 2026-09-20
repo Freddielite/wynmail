@@ -15,6 +15,7 @@ import { rateLimit } from '../rateLimit.js';
 import { parseCsv, readContacts } from '../csv.js';
 import { createResetToken, resetLink } from '../resets.js';
 import { sendSystemEmail, actionEmail } from '../sysmail.js';
+import formsAdmin from './formsAdmin.js';
 import { isEmail, normEmail, DOMAIN_RE, TRACKING_RE, cleanName, cleanText, cleanAttrs, senderAllowed } from '../validate.js';
 
 const router = Router({ mergeParams: true });
@@ -168,7 +169,9 @@ router.post('/contacts/import', async (req, res) => {
 });
 
 router.delete('/contacts/:id', async (req, res) => {
-  await query(`DELETE FROM contacts WHERE id = $1 AND workspace_id = $2`, [req.params.id, ws(req)]);
+  const gone = await one(`DELETE FROM contacts WHERE id = $1 AND workspace_id = $2 RETURNING email`, [req.params.id, ws(req)]);
+  // Deleting a contact also erases their signup and consent log entries.
+  if (gone) await query(`DELETE FROM form_signups WHERE workspace_id = $1 AND email = $2`, [ws(req), gone.email]);
   res.json({ ok: true });
 });
 
@@ -405,6 +408,8 @@ router.delete('/members/:userId', async (req, res) => {
   if (!done) return bad(res, 'That person cannot be removed');
   res.json({ ok: true });
 });
+
+router.use('/forms', formsAdmin);
 
 /* ---------- dashboard ---------- */
 router.get('/stats', async (req, res) => {
