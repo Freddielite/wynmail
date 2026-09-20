@@ -20,9 +20,10 @@ export function merge(input, contact, { html = false } = {}) {
 }
 
 export function trackingBase(workspace) {
-  const domain = workspace.tracking_domain;
-  if (domain) return domain.startsWith('http') ? domain : `https://${domain}`;
-  return process.env.PUBLIC_URL || 'http://localhost:4000';
+  const domain = String(workspace.tracking_domain ?? '').trim();
+  // An empty or stray "null" value falls back to the app URL instead of producing a dead link.
+  if (domain && domain.toLowerCase() !== 'null') return domain.startsWith('http') ? domain : `https://${domain}`;
+  return (process.env.PUBLIC_URL || 'http://localhost:4000').replace(/\/+$/, '');
 }
 
 export const linkSig = (token, url) => hmac(`c:${token}:${url}`).slice(0, 32);

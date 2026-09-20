@@ -39,3 +39,4 @@
 37. `feat(team): add workspace members with emailed invites and owner-only controls`
 38. `fix(import): parse quoted CSV fields, semicolon and tab files, and report duplicates and row errors`
 39. `test: add batch and CSV test suites`
+40. `fix(settings): stop saving the text "null" as the tracking domain, repair existing rows, and fall back to the app URL for email links`

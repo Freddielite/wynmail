@@ -56,6 +56,8 @@ const limit = await call('PUT', `/api/workspaces/${W}`, { token: C, body: { dail
 check('client cannot raise limits, change provider or domain', limit.data.daily_limit === 1000 && limit.data.sending_domain === 'acme.ng' && limit.data.provider === 'resend', JSON.stringify(limit.data));
 const okSettings = await call('PUT', `/api/workspaces/${W}`, { token: C, body: { from_email: 'news@acme.ng', footer_address: '1 Acme Road, Lagos', provider_api_key: 'sk_client_key', tracking_domain: 'http://localhost:4000' } });
 check('client sets valid sender, footer and own key', okSettings.status === 200 && okSettings.data.has_provider_key === true && !JSON.stringify(okSettings.data).includes('sk_client_key'));
+const nulled = await call('PUT', `/api/workspaces/${W}`, { token: C, body: { tracking_domain: null, reply_to: null, footer_address: '1 Acme Road, Lagos' } });
+check('saving a null tracking domain does not store the text "null"', nulled.status === 200 && !String(nulled.data.tracking_domain || '').includes('null'), JSON.stringify(nulled.data));
 const badTrack = await call('PUT', `/api/workspaces/${W}`, { token: C, body: { tracking_domain: 'evil.com/"><script>' } });
 check('tracking domain injection rejected', badTrack.status === 400);
 
@@ -74,6 +76,9 @@ const camp = await call('POST', `/api/workspaces/${W}/campaigns`, { token: C, bo
 const prev = await call('GET', `/api/workspaces/${W}/campaigns/${camp.data.id}/preview`, { token: C });
 check('merge values are HTML escaped', !prev.data.html.includes('<img src=x') && prev.data.html.includes('&lt;img src=x'));
 check('prototype keys do not leak through merge fields', !prev.data.html.includes('function') && prev.data.html.includes('[]'));
+
+const prev2 = await call('GET', `/api/workspaces/${W}/campaigns/${camp.data.id}/preview`, { token: C });
+check('links fall back to the app URL when no tracking domain is set', prev2.data.html.includes(`${BASE}/t/c/`) && !prev2.data.html.includes('//null'), prev2.data.html.match(/href="[^"]+"/)?.[0]);
 
 // signed click links
 const href = prev.data.html.match(/href="(http[^"]*\/t\/c\/[^"]+)"/)[1].replace(/&amp;/g, '&');

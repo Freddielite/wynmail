@@ -23,7 +23,7 @@ router.post('/workspaces', async (req, res) => {
   const name = cleanName(req.body?.name);
   const ownerEmail = normEmail(req.body?.owner_email);
   const password = req.body?.password;
-  const domain = String(req.body?.sending_domain || '').trim().toLowerCase();
+  const domain = String(req.body?.sending_domain ?? '').trim().toLowerCase();
   if (!name) return bad(res, 'name required');
   if (!isEmail(ownerEmail)) return bad(res, 'valid owner email required');
   if (domain && !DOMAIN_RE.test(domain)) return bad(res, 'invalid sending domain');
@@ -50,7 +50,7 @@ router.put('/workspaces/:id', async (req, res) => {
   const f = req.body || {};
   const v = {};
   if (f.sending_domain !== undefined) {
-    const d = String(f.sending_domain).trim().toLowerCase();
+    const d = String(f.sending_domain ?? '').trim().toLowerCase();
     if (d && !DOMAIN_RE.test(d)) return bad(res, 'invalid sending domain');
     v.sending_domain = d;
   }

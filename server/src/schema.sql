@@ -192,3 +192,6 @@ CREATE INDEX IF NOT EXISTS idx_messages_provider ON messages (provider_id);
 CREATE INDEX IF NOT EXISTS idx_api_emails_provider ON api_emails (provider_id);
 ALTER TABLE suppressions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE password_resets ENABLE ROW LEVEL SECURITY;
+
+-- Repair rows saved with the literal text "null" as the tracking domain.
+UPDATE workspaces SET tracking_domain = '' WHERE lower(tracking_domain) = 'null';

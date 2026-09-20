@@ -17,11 +17,11 @@ export default function Settings({ admin }) {
 
   const save = guard(async () => {
     const body = {
-      name: form.name, from_name: form.from_name, from_email: form.from_email, reply_to: form.reply_to,
-      footer_address: form.footer_address, tracking_domain: form.tracking_domain
+      name: form.name || '', from_name: form.from_name || '', from_email: form.from_email || '', reply_to: form.reply_to || '',
+      footer_address: form.footer_address || '', tracking_domain: form.tracking_domain || ''
     };
     if (admin) {
-      Object.assign(body, { sending_domain: form.sending_domain, provider: form.provider,
+      Object.assign(body, { sending_domain: form.sending_domain || '', provider: form.provider,
         rate_per_minute: Number(form.rate_per_minute), daily_limit: Number(form.daily_limit) });
     }
     if (keyInput.trim()) body.provider_api_key = keyInput.trim();

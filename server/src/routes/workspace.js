@@ -45,7 +45,7 @@ router.put('/', async (req, res) => {
     if (v.reply_to && !isEmail(v.reply_to)) return bad(res, 'reply to is not a valid email');
   }
   if (f.tracking_domain !== undefined) {
-    const t = String(f.tracking_domain).trim().toLowerCase();
+    const t = String(f.tracking_domain ?? '').trim().toLowerCase();
     const plainHttp = /^http:\/\//.test(t) && !/^http:\/\/localhost(:|$)/.test(t);
     if (t && (t.length > 253 || !TRACKING_RE.test(t) || plainHttp)) {
       return bad(res, 'tracking domain must be a hostname like track.example.com');
@@ -57,7 +57,7 @@ router.put('/', async (req, res) => {
   let sendingDomain = (req.workspace.sending_domain || '').toLowerCase();
   if (admin) {
     if (f.sending_domain !== undefined) {
-      const d = String(f.sending_domain).trim().toLowerCase();
+      const d = String(f.sending_domain ?? '').trim().toLowerCase();
       if (d && !DOMAIN_RE.test(d)) return bad(res, 'invalid sending domain');
       v.sending_domain = d; sendingDomain = d;
     }
