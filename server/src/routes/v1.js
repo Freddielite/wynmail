@@ -72,7 +72,7 @@ router.post('/contacts', async (req, res) => {
   }
 
   const contact = await upsertContact(wid(req), { ...b, email, consent_source: 'api' }, null);
-  await attachLists(wid(req), contact.id, ids);
+  await attachLists(wid(req), contact.id, ids, { source: 'api' });
   const view = await contactView(wid(req), email);
   res.status(200).json(view);
 });

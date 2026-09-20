@@ -243,3 +243,46 @@ CREATE INDEX IF NOT EXISTS idx_form_signups_form ON form_signups (form_id, creat
 CREATE INDEX IF NOT EXISTS idx_form_signups_email ON form_signups (workspace_id, email);
 ALTER TABLE forms ENABLE ROW LEVEL SECURITY;
 ALTER TABLE form_signups ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE IF NOT EXISTS automations (
+  id SERIAL PRIMARY KEY,
+  workspace_id INT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  list_id INT REFERENCES lists(id) ON DELETE SET NULL,
+  status TEXT NOT NULL DEFAULT 'paused',
+  include_imports BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS automation_steps (
+  id SERIAL PRIMARY KEY,
+  automation_id INT NOT NULL REFERENCES automations(id) ON DELETE CASCADE,
+  position INT NOT NULL,
+  delay_minutes INT NOT NULL DEFAULT 0,
+  subject TEXT NOT NULL,
+  html TEXT NOT NULL,
+  UNIQUE (automation_id, position)
+);
+
+-- One row per person per automation. A person is enrolled once, ever.
+CREATE TABLE IF NOT EXISTS automation_runs (
+  id SERIAL PRIMARY KEY,
+  automation_id INT NOT NULL REFERENCES automations(id) ON DELETE CASCADE,
+  contact_id INT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'active',
+  current_step INT NOT NULL DEFAULT 0,
+  next_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  completed_at TIMESTAMPTZ,
+  UNIQUE (automation_id, contact_id)
+);
+
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS automation_id INT REFERENCES automations(id) ON DELETE SET NULL;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS step_id INT REFERENCES automation_steps(id) ON DELETE SET NULL;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS run_id INT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_run_step ON messages (run_id, step_id) WHERE run_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_runs_due ON automation_runs (status, next_at);
+CREATE INDEX IF NOT EXISTS idx_messages_automation ON messages (automation_id);
+ALTER TABLE automations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE automation_steps ENABLE ROW LEVEL SECURITY;
+ALTER TABLE automation_runs ENABLE ROW LEVEL SECURITY;

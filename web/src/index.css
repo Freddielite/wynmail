@@ -152,3 +152,9 @@ img, iframe { max-width: 100%; }
 .check { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; font-size: 14px; font-weight: 500; color: var(--ink); }
 .check input { width: auto; }
 iframe.formpreview { width: 100%; height: 470px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+
+.stepbox { padding: 14px; margin: 12px 0; border: 1px solid var(--line); border-radius: 12px; background: #fbfdff; }
+.stepbox .stepstats { color: var(--muted); font-size: 12px; }
+.delayrow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; font-size: 14px; color: var(--muted); }
+.delayrow input { width: 84px; }
+.delayrow select { width: auto; }

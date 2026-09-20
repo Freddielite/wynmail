@@ -47,3 +47,8 @@
 45. `feat(forms): protect signups with honeypot, timing token, rate limits and uniform responses`
 46. `feat(web): add Forms page with live preview, embed code and signup log`
 47. `test: add signup forms test suite`
+48. `feat(automations): add multi-step automations that start when someone joins a list, with delays, once-only enrollment and safe defaults for imports`
+49. `feat(automations): send automation emails through the normal queue so limits, tracking, unsubscribe and bounce handling apply`
+50. `feat(web): add Automations page with sequence builder, welcome email starter, live stats and people panel`
+51. `feat(forms): start welcome sequences when a signup is confirmed`
+52. `test: add automations test suite`

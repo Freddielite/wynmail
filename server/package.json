@@ -10,7 +10,8 @@
     "test:api": "node test/api.mjs",
     "test:batch": "node test/batch.mjs",
     "test:csv": "node test/csv.mjs",
-    "test:forms": "node test/forms.mjs"
+    "test:forms": "node test/forms.mjs",
+    "test:automations": "node test/automations.mjs"
   },
   "keywords": [],
   "author": "",

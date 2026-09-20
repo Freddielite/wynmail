@@ -11,6 +11,7 @@ import Clients from './pages/Clients.jsx';
 import Api from './pages/Api.jsx';
 import Team from './pages/Team.jsx';
 import Forms from './pages/Forms.jsx';
+import Automations from './pages/Automations.jsx';
 
 function Shell({ user, workspaces, onLogout }) {
   const nav = useNavigate();
@@ -55,6 +56,7 @@ function Shell({ user, workspaces, onLogout }) {
           <NavLink to="/forms">Forms</NavLink>
           <NavLink to="/templates">Templates</NavLink>
           <NavLink to="/campaigns">Campaigns</NavLink>
+          <NavLink to="/automations">Automations</NavLink>
           <NavLink to="/api">API</NavLink>
           <NavLink to="/team">Team</NavLink>
           <NavLink to="/settings">Settings</NavLink>
@@ -83,6 +85,7 @@ function Shell({ user, workspaces, onLogout }) {
           <Route path="/forms" element={<Forms />} />
           <Route path="/templates" element={<Templates />} />
           <Route path="/campaigns" element={<Campaigns />} />
+          <Route path="/automations" element={<Automations />} />
           <Route path="/api" element={<Api />} />
           <Route path="/team" element={<Team />} />
           <Route path="/settings" element={<Settings admin={!!user?.is_admin} />} />

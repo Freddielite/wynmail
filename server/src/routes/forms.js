@@ -6,6 +6,7 @@ import { hmac, safeEqual, decrypt } from '../config.js';
 import { rateLimit } from '../rateLimit.js';
 import { isEmail, normEmail, cleanName, senderAllowed } from '../validate.js';
 import { upsertContact } from '../contacts.js';
+import { enroll } from '../automations.js';
 import { getProvider } from '../providers/index.js';
 import { throttled } from '../throttle.js';
 import { sentToday } from '../usage.js';
@@ -145,7 +146,7 @@ async function sendConfirmation(f, ws, email, token) {
 // Turns a confirmed signup into a subscribed contact with a consent record.
 async function finalize(s, f) {
   const before = await one(`SELECT status FROM contacts WHERE workspace_id = $1 AND email = $2`, [s.workspace_id, s.email]);
-  const contact = await upsertContact(s.workspace_id, { email: s.email, first_name: s.first_name, last_name: s.last_name, consent_source: `form:${f.slug}` }, f.list_id);
+  const contact = await upsertContact(s.workspace_id, { email: s.email, first_name: s.first_name, last_name: s.last_name, consent_source: `form:${f.slug}` }, f.list_id, { source: 'form' });
   if (before?.status === 'unsubscribed') {
     await query(
       `UPDATE contacts SET status = 'subscribed', unsubscribed_at = NULL, consent_source = $3, consent_at = now(),
@@ -157,6 +158,8 @@ async function finalize(s, f) {
          consent_form_id = COALESCE(consent_form_id, $5) WHERE id = $1 AND workspace_id = $2`,
       [contact.id, s.workspace_id, s.consent_text, s.ip, f.id]);
   }
+  // A returning subscriber only becomes eligible now that their status is subscribed again.
+  if (f.list_id) await enroll(s.workspace_id, contact.id, [f.list_id], 'form');
 }
 
 /* ---------- confirmation link ---------- */

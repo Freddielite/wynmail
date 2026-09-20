@@ -69,7 +69,20 @@ Create a key on the API page in the app (shown once, revocable, several per work
 
 Limits: 120 requests a minute per key. API emails count toward the workspace daily limit and need an approved sending domain. All provider calls share one throttle (`SEND_GAP_MS`, default 500) so the provider's rate limit is respected.
 
-Tests inside `server`: `npm run test:csv` needs nothing. `test:security`, `test:api`, `test:batch` and `test:forms` each run against a fresh empty database with `FORCE_PROVIDER=console`. `test:batch` and `test:forms` also need `RESEND_WEBHOOK_SECRET` set on the server and `LOG` pointing at the server log file.
+Tests inside `server`: `npm run test:csv` needs nothing. `test:security`, `test:api`, `test:batch`, `test:forms` and `test:automations` each run against a fresh empty database with `FORCE_PROVIDER=console`. `test:automations` also needs `AUTOMATION_MINUTE_MS=1000` on the server. `test:batch` and `test:forms` also need `RESEND_WEBHOOK_SECRET` set on the server and `LOG` pointing at the server log file.
+
+## Automations
+
+An automation sends a sequence of emails to people after they join a list, for example a welcome email now and a follow-up in 3 days.
+
+- The trigger is joining a list, however it happens: a signup form (after confirming), the API, or adding a contact by hand. People added by CSV import are skipped unless the automation opts in, and turning an automation on never emails people who are already on the list.
+- Each person enters an automation once, ever. Rejoining the list does not restart it.
+- Each email has its own delay, counted from the previous email (or from joining, for the first). Delays can be minutes, hours or days.
+- A sequence stops for anyone who unsubscribes, bounces or complains before their next email. Pausing an automation holds every send and stops new enrollments, and resuming continues where people left off.
+- Automation emails go through the normal sending queue, so the rate limit, daily cap, open and click tracking, unsubscribe footer, bounce handling and reports all apply. Editing an automation changes what people who have not yet reached that email will receive.
+- Turning one on needs the same sender setup as sending a campaign.
+- The People panel shows where everyone is in the sequence.
+- `AUTOMATION_MINUTE_MS` (default 60000) is a test knob that shortens how long a minute of delay lasts. Leave it unset in production.
 
 ## Signup forms
 

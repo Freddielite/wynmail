@@ -69,6 +69,14 @@ export const api = {
   deleteForm: (id) => request(ws(`/forms/${id}`), { method: 'DELETE' }),
   formSignups: (id) => request(ws(`/forms/${id}/signups`)),
 
+  automations: () => request(ws('/automations')),
+  automation: (id) => request(ws(`/automations/${id}`)),
+  createAutomation: (b) => request(ws('/automations'), { method: 'POST', body: b }),
+  updateAutomation: (id, b) => request(ws(`/automations/${id}`), { method: 'PUT', body: b }),
+  setAutomationStatus: (id, active) => request(ws(`/automations/${id}/status`), { method: 'POST', body: { active } }),
+  deleteAutomation: (id) => request(ws(`/automations/${id}`), { method: 'DELETE' }),
+  automationRuns: (id) => request(ws(`/automations/${id}/runs`)),
+
   campaigns: () => request(ws('/campaigns')),
   createCampaign: (b) => request(ws('/campaigns'), { method: 'POST', body: b }),
   updateCampaign: (id, b) => request(ws(`/campaigns/${id}`), { method: 'PUT', body: b }),

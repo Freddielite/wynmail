@@ -16,6 +16,7 @@ import { parseCsv, readContacts } from '../csv.js';
 import { createResetToken, resetLink } from '../resets.js';
 import { sendSystemEmail, actionEmail } from '../sysmail.js';
 import formsAdmin from './formsAdmin.js';
+import automationsAdmin from './automationsAdmin.js';
 import { isEmail, normEmail, DOMAIN_RE, TRACKING_RE, cleanName, cleanText, cleanAttrs, senderAllowed } from '../validate.js';
 
 const router = Router({ mergeParams: true });
@@ -163,7 +164,7 @@ router.post('/contacts/import', async (req, res) => {
   if (parsed.error) return bad(res, parsed.error);
 
   for (const c of parsed.contacts) {
-    await upsertContact(ws(req), { ...c, consent_source: 'csv-import' }, listId);
+    await upsertContact(ws(req), { ...c, consent_source: 'csv-import' }, listId, { source: 'import' });
   }
   res.json({ imported: parsed.contacts.length, skipped: parsed.skipped, duplicates: parsed.duplicates, errors: parsed.errors });
 });
@@ -410,6 +411,7 @@ router.delete('/members/:userId', async (req, res) => {
 });
 
 router.use('/forms', formsAdmin);
+router.use('/automations', automationsAdmin);
 
 /* ---------- dashboard ---------- */
 router.get('/stats', async (req, res) => {

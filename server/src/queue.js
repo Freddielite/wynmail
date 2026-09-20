@@ -5,6 +5,7 @@ import { decrypt } from './config.js';
 import { senderAllowed } from './validate.js';
 import { throttled } from './throttle.js';
 import { sentToday } from './usage.js';
+import { processDueRuns } from './automations.js';
 
 const MAX_ATTEMPTS = 3;
 const TICK_MS = Number(process.env.QUEUE_TICK_MS || 5000);
@@ -84,7 +85,9 @@ export async function drainOnce() {
 
 async function sendMessage(workspace, message) {
   const contact = await one(`SELECT * FROM contacts WHERE id = $1`, [message.contact_id]);
-  const campaign = await one(`SELECT * FROM campaigns WHERE id = $1`, [message.campaign_id]);
+  const campaign = message.campaign_id
+    ? await one(`SELECT * FROM campaigns WHERE id = $1`, [message.campaign_id])
+    : await one(`SELECT * FROM automation_steps WHERE id = $1`, [message.step_id]);
   if (!contact || !campaign || contact.status !== 'subscribed') {
     await query(`UPDATE messages SET status = 'skipped' WHERE id = $1`, [message.id]);
     return;
@@ -124,6 +127,7 @@ export function startWorker() {
     running = true;
     try {
       await enqueueDueCampaigns();
+      await processDueRuns();
       await drainOnce();
     } catch (err) {
       console.error('[queue]', err.message);
