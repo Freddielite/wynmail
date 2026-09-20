@@ -3,12 +3,10 @@ import { getProvider } from './providers/index.js';
 import { buildEmail } from './render.js';
 import { decrypt } from './config.js';
 import { senderAllowed } from './validate.js';
+import { throttled } from './throttle.js';
 
 const MAX_ATTEMPTS = 3;
 const TICK_MS = Number(process.env.QUEUE_TICK_MS || 5000);
-// Pause between sends so the shared provider key stays under the provider's requests-per-second limit.
-const SEND_GAP_MS = Number(process.env.SEND_GAP_MS || 500);
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let running = false;
 
 export async function enqueueDueCampaigns() {
@@ -52,7 +50,8 @@ export async function enqueueCampaign(campaignId) {
 
 async function sentToday(workspaceId) {
   const row = await one(
-    `SELECT count(*)::int AS n FROM messages WHERE workspace_id = $1 AND sent_at >= date_trunc('day', now())`,
+    `SELECT ((SELECT count(*) FROM messages WHERE workspace_id = $1 AND sent_at >= date_trunc('day', now()))
+           + (SELECT count(*) FROM api_emails WHERE workspace_id = $1 AND status = 'sent' AND created_at >= date_trunc('day', now())))::int AS n`,
     [workspaceId]
   );
   return row?.n || 0;
@@ -81,10 +80,7 @@ export async function drainOnce() {
        ) RETURNING *`,
       [workspace.id, batchSize]
     );
-    for (const message of batch) {
-      await sendMessage(workspace, message);
-      await sleep(SEND_GAP_MS);
-    }
+    for (const message of batch) await throttled(() => sendMessage(workspace, message));
   }
 
   await query(

@@ -26,3 +26,7 @@
 24. `fix(web): make every page responsive, with a scrollable mobile nav, sign out and workspace switcher on phones, and card layouts for tables`
 25. `fix(web): pin sidebar account and sign out section to the bottom of the panel and keep the sidebar fixed while scrolling`
 26. `fix(queue): refuse to send campaigns whose list has no subscribed contacts and return them to draft`
+27. `feat(api): add per-workspace API keys and public /v1 endpoints for contacts, single emails and campaign stats`
+28. `feat(web): add API page with key management, curl examples and recent API sends`
+29. `feat(web): add toasts, busy buttons and live campaign status, plus a one-button send flow and list picker`
+30. `test: add API test suite and share one provider throttle between campaigns and API sends`

@@ -1,39 +1,43 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api.js';
+import { Btn, useGuard } from '../ui.jsx';
 
 const STARTER = `<h1 style="color:#0b2a5b">Hello {{first_name}},</h1>
 <p>Write your message here.</p>
 <p><a href="https://wyntek.ng" style="background:#1d4ed8;color:#fff;padding:12px 22px;border-radius:999px;text-decoration:none;display:inline-block">Read more</a></p>`;
+const blank = { name: '', subject: '', html: STARTER };
 
 export default function Templates() {
+  const guard = useGuard();
   const [templates, setTemplates] = useState([]);
-  const [draft, setDraft] = useState({ name: '', subject: '', html: STARTER });
+  const [draft, setDraft] = useState(blank);
   const [editing, setEditing] = useState(null);
-  const [error, setError] = useState('');
 
-  const load = () => api.templates().then(setTemplates).catch((e) => setError(e.message));
-  useEffect(() => { load(); }, []);
+  const load = async () => setTemplates(await api.templates());
+  useEffect(() => { guard(load)(); }, []);
 
-  const save = async () => {
-    setError('');
-    try {
-      if (editing) await api.updateTemplate(editing, draft);
-      else await api.createTemplate(draft);
-      setEditing(null);
-      setDraft({ name: '', subject: '', html: STARTER });
-      load();
-    } catch (e) { setError(e.message); }
-  };
+  const save = guard(async () => {
+    if (editing) await api.updateTemplate(editing, draft);
+    else await api.createTemplate(draft);
+    const msg = editing ? 'Template updated' : 'Template created';
+    setEditing(null); setDraft(blank);
+    await load();
+    return msg;
+  });
 
-  const edit = (t) => { setEditing(t.id); setDraft({ name: t.name, subject: t.subject, html: t.html }); };
+  const remove = (id) => guard(async () => {
+    if (!window.confirm('Delete this template?')) return;
+    await api.deleteTemplate(id);
+    await load();
+    return 'Template deleted';
+  });
 
-  const remove = async (id) => { await api.deleteTemplate(id); load(); };
+  const edit = (t) => { setEditing(t.id); setDraft({ name: t.name, subject: t.subject, html: t.html }); window.scrollTo({ top: 0, behavior: 'smooth' }); };
 
   return (
     <>
       <h1>Templates</h1>
       <p className="muted" style={{ marginBottom: 20 }}>Reusable HTML with merge fields like {'{{first_name}}'}.</p>
-      {error && <div className="error">{error}</div>}
 
       <div className="grid cols-2">
         <div className="card">
@@ -51,8 +55,8 @@ export default function Templates() {
             <textarea rows="14" value={draft.html} onChange={(e) => setDraft({ ...draft, html: e.target.value })} />
           </div>
           <div className="row">
-            <button className="btn" onClick={save}>{editing ? 'Save changes' : 'Create template'}</button>
-            {editing && <button className="btn ghost" onClick={() => { setEditing(null); setDraft({ name: '', subject: '', html: STARTER }); }}>Cancel</button>}
+            <Btn busyText="Saving..." onClick={save}>{editing ? 'Save changes' : 'Create template'}</Btn>
+            {editing && <button className="btn ghost" onClick={() => { setEditing(null); setDraft(blank); }}>Cancel</button>}
           </div>
         </div>
 
@@ -68,9 +72,9 @@ export default function Templates() {
                 {templates.map((t) => (
                   <tr key={t.id}>
                     <td><strong>{t.name}</strong><div className="muted">{t.subject}</div></td>
-                    <td style={{ textAlign: 'right' }}>
+                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                       <button className="btn ghost sm" onClick={() => edit(t)}>Edit</button>{' '}
-                      <button className="btn danger sm" onClick={() => remove(t.id)}>Delete</button>
+                      <Btn className="btn danger sm" busyText="Deleting..." onClick={remove(t.id)}>Delete</Btn>
                     </td>
                   </tr>
                 ))}

@@ -1,47 +1,41 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api.js';
+import { Btn, useGuard } from '../ui.jsx';
 
 export default function Settings({ admin }) {
+  const guard = useGuard();
   const [form, setForm] = useState(null);
   const [keyInput, setKeyInput] = useState('');
   const [clearKey, setClearKey] = useState(false);
-  const [note, setNote] = useState('');
-  const [error, setError] = useState('');
 
-  useEffect(() => { api.workspace().then(setForm).catch((e) => setError(e.message)); }, []);
+  useEffect(() => { guard(async () => setForm(await api.workspace()))(); }, []);
   if (!form) return <p className="muted">Loading...</p>;
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
 
-  const save = async () => {
-    setError(''); setNote('');
+  const save = guard(async () => {
     const body = {
       name: form.name, from_name: form.from_name, from_email: form.from_email, reply_to: form.reply_to,
       footer_address: form.footer_address, tracking_domain: form.tracking_domain
     };
     if (admin) {
-      Object.assign(body, {
-        sending_domain: form.sending_domain, provider: form.provider,
-        rate_per_minute: Number(form.rate_per_minute), daily_limit: Number(form.daily_limit)
-      });
+      Object.assign(body, { sending_domain: form.sending_domain, provider: form.provider,
+        rate_per_minute: Number(form.rate_per_minute), daily_limit: Number(form.daily_limit) });
     }
     if (keyInput.trim()) body.provider_api_key = keyInput.trim();
     if (clearKey) body.clear_provider_key = true;
-    try {
-      setForm(await api.saveWorkspace(body));
-      setKeyInput(''); setClearKey(false);
-      setNote('Settings saved.');
-    } catch (e) { setError(e.message); }
-  };
+    setForm(await api.saveWorkspace(body));
+    setKeyInput(''); setClearKey(false);
+    return 'Settings saved';
+  });
 
   const domain = form.sending_domain || 'yourdomain.com';
+  const saveBtn = <Btn busyText="Saving..." onClick={save}>Save settings</Btn>;
 
   return (
     <>
       <h1>Settings</h1>
       <p className="muted" style={{ marginBottom: 20 }}>Sender identity, tracking and sending limits for this workspace.</p>
-      {error && <div className="error">{error}</div>}
-      {note && <div className="ok">{note}</div>}
 
       <div className="grid cols-2">
         <div className="card">
@@ -55,7 +49,7 @@ export default function Settings({ admin }) {
           <div className="field"><label>From email (must use the sending domain)</label><input value={form.from_email || ''} onChange={set('from_email')} /></div>
           <div className="field"><label>Reply to</label><input value={form.reply_to || ''} onChange={set('reply_to')} /></div>
           <div className="field"><label>Footer postal address</label><input value={form.footer_address || ''} onChange={set('footer_address')} /></div>
-          <button className="btn" onClick={save}>Save settings</button>
+          {saveBtn}
         </div>
 
         <div className="grid">
@@ -83,7 +77,7 @@ export default function Settings({ admin }) {
                 </label>
               )}
             </div>
-            <button className="btn" onClick={save}>Save settings</button>
+            {saveBtn}
           </div>
 
           <div className="card">

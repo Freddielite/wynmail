@@ -1,32 +1,33 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api.js';
+import { Btn, useGuard } from '../ui.jsx';
+
+const blank = { name: '', owner_email: '', password: '', sending_domain: '' };
 
 export default function Clients() {
+  const guard = useGuard();
   const [rows, setRows] = useState([]);
-  const [form, setForm] = useState({ name: '', owner_email: '', password: '', sending_domain: '' });
+  const [form, setForm] = useState(blank);
   const [edit, setEdit] = useState(null);
-  const [note, setNote] = useState('');
-  const [error, setError] = useState('');
 
-  const load = () => api.adminWorkspaces().then(setRows).catch((e) => setError(e.message));
-  useEffect(() => { load(); }, []);
-
-  const guard = (fn, msg) => async () => {
-    setError(''); setNote('');
-    try { await fn(); setNote(msg); await load(); } catch (e) { setError(e.message); }
-  };
+  const load = async () => setRows(await api.adminWorkspaces());
+  useEffect(() => { guard(load)(); }, []);
 
   const create = guard(async () => {
     await api.adminCreateWorkspace(form);
-    setForm({ name: '', owner_email: '', password: '', sending_domain: '' });
-  }, 'Client workspace created. Use the workspace switcher in the sidebar after a refresh.');
+    setForm(blank);
+    await load();
+    return 'Client workspace created. Refresh to see it in the workspace switcher';
+  });
 
   const saveEdit = guard(async () => {
     await api.adminUpdateWorkspace(edit.id, {
       sending_domain: edit.sending_domain || '', daily_limit: Number(edit.daily_limit), rate_per_minute: Number(edit.rate_per_minute)
     });
     setEdit(null);
-  }, 'Client updated.');
+    await load();
+    return 'Client updated';
+  });
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
   const setE = (k) => (e) => setEdit({ ...edit, [k]: e.target.value });
@@ -35,8 +36,6 @@ export default function Clients() {
     <>
       <h1>Clients</h1>
       <p className="muted" style={{ marginBottom: 20 }}>Create client workspaces, approve sending domains and set limits.</p>
-      {error && <div className="error">{error}</div>}
-      {note && <div className="ok">{note}</div>}
 
       <div className="grid cols-side">
         <div className="card">
@@ -45,14 +44,14 @@ export default function Clients() {
           <div className="field"><label>Owner email</label><input type="email" value={form.owner_email} onChange={set('owner_email')} /></div>
           <div className="field"><label>Owner password (new accounts only)</label><input type="password" autoComplete="new-password" value={form.password} onChange={set('password')} /></div>
           <div className="field"><label>Approved sending domain</label><input placeholder="clientdomain.com" value={form.sending_domain} onChange={set('sending_domain')} /></div>
-          <button className="btn" onClick={create}>Create workspace</button>
+          <Btn busyText="Creating..." onClick={create}>Create workspace</Btn>
         </div>
 
         <div className="card">
-          <h3>{rows.length} workspaces</h3>
+          <h3>{rows.length} {rows.length === 1 ? 'workspace' : 'workspaces'}</h3>
           <div className="table-wrap">
             <table className="stack">
-              <thead><tr><th>Workspace</th><th>Domain</th><th>Today</th><th>Limit</th><th>Members</th><th></th></tr></thead>
+              <thead><tr><th>Workspace</th><th>Domain</th><th>Today</th><th>Limits</th><th>Members</th><th></th></tr></thead>
               <tbody>
                 {rows.map((r) => (edit?.id === r.id ? (
                   <tr key={r.id}>
@@ -65,7 +64,7 @@ export default function Clients() {
                     </td>
                     <td data-label="Members" className="muted">{r.members}</td>
                     <td className="actions">
-                      <button className="btn sm" onClick={saveEdit}>Save</button>{' '}
+                      <Btn className="btn sm" busyText="Saving..." onClick={saveEdit}>Save</Btn>{' '}
                       <button className="btn ghost sm" onClick={() => setEdit(null)}>Cancel</button>
                     </td>
                   </tr>

@@ -58,10 +58,24 @@ Add `server/src/providers/wynsmtp.js`, register it in `providers/index.js`, then
 
 Use the pooler host, not `db.<ref>.supabase.co`, which is IPv6 only on the free tier.
 
+## API
+
+Create a key on the API page in the app (shown once, revocable, several per workspace). Send it as `Authorization: Bearer wm_...`.
+
+- `POST /v1/emails` sends one transactional email. No unsubscribe footer, no link tracking. Body: `to`, `subject`, `html` or `text` or `template_id`, optional `variables`, `reply_to`.
+- `POST /v1/contacts` adds or updates a contact. Body: `email`, `first_name`, `last_name`, `attributes`, and `list` (name, created if missing) or `list_ids`. Unsubscribed contacts stay unsubscribed.
+- `GET /v1/contacts/{email}` and `POST /v1/contacts/{email}/unsubscribe`
+- `GET /v1/lists`, `GET /v1/campaigns`, `GET /v1/campaigns/{id}`
+
+Limits: 120 requests a minute per key. API emails count toward the workspace daily limit and need an approved sending domain. All provider calls share one throttle (`SEND_GAP_MS`, default 500) so the provider's rate limit is respected.
+
+Tests: `npm run test:security` and `npm run test:api` inside `server`, each against a fresh empty database with `FORCE_PROVIDER=console`.
+
 ## Security model
 
 - Signup is closed after the first account. That account becomes the admin (set `ADMIN_EMAIL` so only you can claim it). Admins create client workspaces on the Clients page.
 - Only admins can change a workspace's sending domain, daily limit, per-minute rate and provider. Clients can only send from an admin-approved domain, which stops one client spoofing another through the shared provider key.
+- Wynmail API keys are stored only as SHA-256 hashes and shown once. Revoking takes effect immediately.
 - Provider API keys are encrypted at rest (AES-256-GCM) and never returned by the API.
 - Click links are HMAC signed, so the tracking domain cannot be used as an open redirect.
 - Unsubscribe needs a confirmed POST. Link scanners that prefetch URLs cannot unsubscribe anyone.

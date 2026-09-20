@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { many, one, query } from '../db.js';
 import { enqueueCampaign } from '../queue.js';
 import { buildEmail } from '../render.js';
+import { upsertContact } from '../contacts.js';
+import { newKey } from '../apikeys.js';
 import { publicWorkspace } from '../auth.js';
 import { encrypt } from '../config.js';
 import { isEmail, normEmail, DOMAIN_RE, TRACKING_RE, cleanName, cleanText, cleanAttrs, senderAllowed } from '../validate.js';
@@ -126,29 +128,6 @@ router.get('/contacts', async (req, res) => {
     [ws(req), listId, q]
   ));
 });
-
-async function upsertContact(workspaceId, body, listId) {
-  const attrs = cleanAttrs(body.attributes);
-  const contact = await one(
-    `INSERT INTO contacts (workspace_id, email, first_name, last_name, attributes, consent_source, consent_at)
-     VALUES ($1, $2, $3, $4, COALESCE($5::jsonb, '{}'::jsonb), $6, now())
-     ON CONFLICT (workspace_id, email) DO UPDATE SET
-       first_name = COALESCE(EXCLUDED.first_name, contacts.first_name),
-       last_name = COALESCE(EXCLUDED.last_name, contacts.last_name),
-       attributes = contacts.attributes || EXCLUDED.attributes
-     RETURNING *`,
-    [workspaceId, normEmail(body.email), cleanName(body.first_name) || null, cleanName(body.last_name) || null,
-     attrs ? JSON.stringify(attrs) : null, body.consent_source || 'manual']
-  );
-  if (listId) {
-    await query(
-      `INSERT INTO list_contacts (list_id, contact_id)
-       SELECT l.id, $2 FROM lists l WHERE l.id = $1 AND l.workspace_id = $3 ON CONFLICT DO NOTHING`,
-      [listId, contact.id, workspaceId]
-    );
-  }
-  return contact;
-}
 
 router.post('/contacts', async (req, res) => {
   if (!isEmail(normEmail(req.body?.email))) return bad(res, 'valid email required');
@@ -296,6 +275,35 @@ router.get('/campaigns/:id/messages', async (req, res) => {
     [req.params.id, ws(req)]));
 });
 
+/* ---------- API keys ---------- */
+router.get('/api-keys', async (req, res) => {
+  res.json(await many(
+    `SELECT id, name, prefix, last_used_at, created_at FROM api_keys
+     WHERE workspace_id = $1 AND revoked_at IS NULL ORDER BY id DESC`, [ws(req)]));
+});
+
+router.post('/api-keys', async (req, res) => {
+  const name = cleanName(req.body?.name) || 'Untitled key';
+  const { n } = await one(`SELECT count(*)::int AS n FROM api_keys WHERE workspace_id = $1 AND revoked_at IS NULL`, [ws(req)]);
+  if (n >= 10) return bad(res, 'You can have at most 10 active keys. Revoke one first.');
+  const { key, prefix, hash } = newKey();
+  const row = await one(
+    `INSERT INTO api_keys (workspace_id, name, prefix, key_hash) VALUES ($1, $2, $3, $4)
+     RETURNING id, name, prefix, created_at`, [ws(req), name, prefix, hash]);
+  res.json({ ...row, key }); // the full key is shown this once and never stored
+});
+
+router.delete('/api-keys/:id', async (req, res) => {
+  await query(`UPDATE api_keys SET revoked_at = now() WHERE id = $1 AND workspace_id = $2 AND revoked_at IS NULL`, [req.params.id, ws(req)]);
+  res.json({ ok: true });
+});
+
+router.get('/api-emails', async (req, res) => {
+  res.json(await many(
+    `SELECT id, to_email, subject, status, error, created_at FROM api_emails
+     WHERE workspace_id = $1 ORDER BY id DESC LIMIT 25`, [ws(req)]));
+});
+
 /* ---------- dashboard ---------- */
 router.get('/stats', async (req, res) => {
   const stats = await one(
@@ -307,7 +315,7 @@ router.get('/stats', async (req, res) => {
        (SELECT count(*)::int FROM messages WHERE workspace_id = $1 AND opened_at IS NOT NULL) AS opened,
        (SELECT count(*)::int FROM messages WHERE workspace_id = $1 AND clicked_at IS NOT NULL) AS clicked,
        (SELECT count(*)::int FROM messages WHERE workspace_id = $1 AND status = 'queued') AS queued,
-       (SELECT count(*)::int FROM messages WHERE workspace_id = $1 AND sent_at >= date_trunc('day', now())) AS sent_today`,
+       ((SELECT count(*) FROM messages WHERE workspace_id = $1 AND sent_at >= date_trunc('day', now())) + (SELECT count(*) FROM api_emails WHERE workspace_id = $1 AND status = 'sent' AND created_at >= date_trunc('day', now())))::int AS sent_today`,
     [ws(req)]
   );
   res.json({ ...stats, daily_limit: req.workspace.daily_limit });

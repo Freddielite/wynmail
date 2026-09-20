@@ -8,6 +8,7 @@ import Templates from './pages/Templates.jsx';
 import Campaigns from './pages/Campaigns.jsx';
 import Settings from './pages/Settings.jsx';
 import Clients from './pages/Clients.jsx';
+import Api from './pages/Api.jsx';
 
 function Shell({ user, workspaces, onLogout }) {
   const nav = useNavigate();
@@ -26,6 +27,7 @@ function Shell({ user, workspaces, onLogout }) {
           <NavLink to="/contacts">Contacts</NavLink>
           <NavLink to="/templates">Templates</NavLink>
           <NavLink to="/campaigns">Campaigns</NavLink>
+          <NavLink to="/api">API</NavLink>
           <NavLink to="/settings">Settings</NavLink>
           {user?.is_admin && <NavLink to="/clients">Clients</NavLink>}
         </nav>
@@ -51,6 +53,7 @@ function Shell({ user, workspaces, onLogout }) {
           <Route path="/contacts" element={<Contacts />} />
           <Route path="/templates" element={<Templates />} />
           <Route path="/campaigns" element={<Campaigns />} />
+          <Route path="/api" element={<Api />} />
           <Route path="/settings" element={<Settings admin={!!user?.is_admin} />} />
           {user?.is_admin && <Route path="/clients" element={<Clients />} />}
           <Route path="*" element={<Navigate to="/" replace />} />

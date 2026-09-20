@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "test:security": "node test/security.mjs"
+    "test:security": "node test/security.mjs",
+    "test:api": "node test/api.mjs"
   },
   "keywords": [],
   "author": "",

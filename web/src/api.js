@@ -51,6 +51,11 @@ export const api = {
   updateTemplate: (id, b) => request(ws(`/templates/${id}`), { method: 'PUT', body: b }),
   deleteTemplate: (id) => request(ws(`/templates/${id}`), { method: 'DELETE' }),
 
+  apiKeys: () => request(ws('/api-keys')),
+  createApiKey: (b) => request(ws('/api-keys'), { method: 'POST', body: b }),
+  revokeApiKey: (id) => request(ws(`/api-keys/${id}`), { method: 'DELETE' }),
+  apiEmails: () => request(ws('/api-emails')),
+
   campaigns: () => request(ws('/campaigns')),
   createCampaign: (b) => request(ws('/campaigns'), { method: 'POST', body: b }),
   updateCampaign: (id, b) => request(ws(`/campaigns/${id}`), { method: 'PUT', body: b }),

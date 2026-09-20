@@ -1,17 +1,17 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api.js';
+import { useGuard, usePolling } from '../ui.jsx';
 
 const rate = (part, whole) => (whole ? `${Math.round((part / whole) * 100)}%` : '0%');
 
 export default function Dashboard({ workspace }) {
+  const guard = useGuard();
   const [stats, setStats] = useState(null);
-  const [error, setError] = useState('');
 
-  useEffect(() => {
-    api.stats().then(setStats).catch((e) => setError(e.message));
-  }, []);
+  const load = async () => setStats(await api.stats());
+  useEffect(() => { guard(load)(); }, []);
+  usePolling(() => load().catch(() => {}), !!stats && stats.queued > 0, 4000);
 
-  if (error) return <div className="error">{error}</div>;
   if (!stats) return <p className="muted">Loading...</p>;
 
   const cards = [

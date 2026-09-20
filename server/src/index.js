@@ -8,6 +8,7 @@ import authRoutes from './routes/auth.js';
 import adminRoutes from './routes/admin.js';
 import workspaceRoutes from './routes/workspace.js';
 import trackRoutes from './routes/track.js';
+import v1Routes from './routes/v1.js';
 import { startWorker } from './queue.js';
 
 const app = express();
@@ -21,6 +22,7 @@ const apiCors = cors({ origin: origins });
 
 app.get('/health', (_req, res) => res.json({ ok: true, service: 'wynmail' }));
 app.use('/t', trackRoutes);
+app.use('/v1', v1Routes);
 app.use('/api', apiCors);
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
