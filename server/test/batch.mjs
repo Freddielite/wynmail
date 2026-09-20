@@ -74,6 +74,8 @@ await call('POST', `/api/workspaces/1/campaigns/${camp2.id}/send`, { token: A })
 await sleep(4500);
 const second = (await call('GET', `/api/workspaces/1/campaigns/${camp2.id}/messages`, { token: A })).data;
 check('later campaigns skip bounced and complained contacts', second.length === 1 && second[0].email === 'ada@example.com', JSON.stringify(second.map((m) => m.email)));
+const counts = (await call('GET', '/api/workspaces/1/lists', { token: A })).data.find((l) => l.id === list.id);
+check('list counts separate everyone from who can actually receive', counts.contact_count === 3 && counts.subscribed_count === 1, JSON.stringify(counts));
 await call('POST', '/api/workspaces/1/contacts/import', { token: A, body: { list_id: list.id, csv: 'email\nbob@example.com\ncy@example.com' } });
 check('re-importing does not resubscribe them', (await status('bob')) === 'bounced' && (await status('cy')) === 'complained');
 const K = (await call('POST', '/api/workspaces/1/api-keys', { token: A, body: { name: 'k' } })).data.key;

@@ -111,7 +111,9 @@ router.put('/', async (req, res) => {
 /* ---------- lists ---------- */
 router.get('/lists', async (req, res) => {
   res.json(await many(
-    `SELECT l.*, (SELECT count(*)::int FROM list_contacts lc WHERE lc.list_id = l.id) AS contact_count
+    `SELECT l.*, (SELECT count(*)::int FROM list_contacts lc WHERE lc.list_id = l.id) AS contact_count,
+       (SELECT count(*)::int FROM list_contacts lc JOIN contacts c ON c.id = lc.contact_id
+        WHERE lc.list_id = l.id AND c.status = 'subscribed') AS subscribed_count
      FROM lists l WHERE l.workspace_id = $1 ORDER BY l.id DESC`, [ws(req)]));
 });
 

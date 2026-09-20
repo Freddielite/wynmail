@@ -40,6 +40,8 @@ export default function Campaigns() {
   usePolling(refresh, sending, 3000);
   usePolling(refresh, scheduled && !sending, 10000);
 
+  const picked = lists.find((l) => String(l.id) === String(draft.list_id));
+  const skipped = picked ? picked.contact_count - picked.subscribed_count : 0;
   const set = (k) => (e) => setDraft({ ...draft, [k]: e.target.value });
   const reset = () => { setEditing(null); setDraft(blank); setPreview(''); };
 
@@ -117,7 +119,7 @@ export default function Campaigns() {
               <label>List</label>
               <select value={draft.list_id} onChange={set('list_id')}>
                 <option value="">Choose a list</option>
-                {lists.map((l) => <option key={l.id} value={l.id}>{l.name} ({l.contact_count})</option>)}
+                {lists.map((l) => <option key={l.id} value={l.id}>{l.name} ({l.subscribed_count} can receive)</option>)}
               </select>
             </div>
             <div style={{ flex: 1 }}>
@@ -128,6 +130,11 @@ export default function Campaigns() {
               </select>
             </div>
           </div>
+          {skipped > 0 && (
+            <div className="muted" style={{ margin: '-6px 0 14px' }}>
+              {skipped} of {picked.contact_count} contacts in this list will be skipped: they unsubscribed, bounced or reported spam.
+            </div>
+          )}
           <div className="field">
             <label>Send later (optional)</label>
             <input type="datetime-local" value={draft.scheduled_at} onChange={set('scheduled_at')} />
