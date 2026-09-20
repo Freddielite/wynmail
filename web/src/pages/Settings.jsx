@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api.js';
-import { Btn, useGuard } from '../ui.jsx';
+import { Btn, CopyBtn, useGuard } from '../ui.jsx';
 
 export default function Settings({ admin }) {
   const guard = useGuard();
   const [form, setForm] = useState(null);
   const [keyInput, setKeyInput] = useState('');
   const [clearKey, setClearKey] = useState(false);
+  const [hookSecret, setHookSecret] = useState('');
+  const [clearHook, setClearHook] = useState(false);
 
   useEffect(() => { guard(async () => setForm(await api.workspace()))(); }, []);
   if (!form) return <p className="muted">Loading...</p>;
@@ -24,12 +26,15 @@ export default function Settings({ admin }) {
     }
     if (keyInput.trim()) body.provider_api_key = keyInput.trim();
     if (clearKey) body.clear_provider_key = true;
+    if (hookSecret.trim()) body.webhook_secret = hookSecret.trim();
+    if (clearHook) body.clear_webhook_secret = true;
     setForm(await api.saveWorkspace(body));
-    setKeyInput(''); setClearKey(false);
+    setKeyInput(''); setClearKey(false); setHookSecret(''); setClearHook(false);
     return 'Settings saved';
   });
 
   const domain = form.sending_domain || 'yourdomain.com';
+  const hookUrl = `${api.base}/webhooks/resend/${form.id}`;
   const saveBtn = <Btn busyText="Saving..." onClick={save}>Save settings</Btn>;
 
   return (
@@ -75,6 +80,25 @@ export default function Settings({ admin }) {
                   <input type="checkbox" style={{ width: 'auto', marginRight: 8 }} checked={clearKey} onChange={(e) => setClearKey(e.target.checked)} />
                   Remove the saved key
                 </label>
+              )}
+            </div>
+            <div className="field" style={{ marginTop: 6 }}>
+              <label>Bounce and spam tracking</label>
+              {form.has_provider_key ? (
+                <>
+                  <p className="muted" style={{ margin: '0 0 8px' }}>In your Resend account add a webhook with this URL and the events <code>email.delivered</code>, <code>email.bounced</code> and <code>email.complained</code>. Then paste its signing secret here. Bounced and complaining addresses are blocked automatically.</p>
+                  <div className="row"><input readOnly value={hookUrl} /><CopyBtn text={hookUrl} /></div>
+                  <input type="password" autoComplete="off" style={{ marginTop: 8 }} value={hookSecret} onChange={(e) => setHookSecret(e.target.value)}
+                    placeholder={form.has_webhook_secret ? 'Saved. Type to replace.' : 'whsec_...'} />
+                  {form.has_webhook_secret && (
+                    <label style={{ marginTop: 8, fontWeight: 500 }}>
+                      <input type="checkbox" style={{ width: 'auto', marginRight: 8 }} checked={clearHook} onChange={(e) => setClearHook(e.target.checked)} />
+                      Remove the saved secret
+                    </label>
+                  )}
+                </>
+              ) : (
+                <p className="muted" style={{ margin: 0 }}>Bounces and spam complaints are tracked for you on the Wyntek shared account. Addresses that bounce or complain are blocked from future sends.</p>
               )}
             </div>
             {saveBtn}

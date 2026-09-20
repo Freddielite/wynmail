@@ -159,3 +159,36 @@ CREATE TABLE IF NOT EXISTS api_emails (
 CREATE INDEX IF NOT EXISTS idx_api_emails_ws ON api_emails (workspace_id, created_at DESC);
 ALTER TABLE api_keys ENABLE ROW LEVEL SECURITY;
 ALTER TABLE api_emails ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS delivered_at TIMESTAMPTZ;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS bounced_at TIMESTAMPTZ;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS bounce_type TEXT;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS complained_at TIMESTAMPTZ;
+ALTER TABLE api_emails ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'api';
+ALTER TABLE api_emails ADD COLUMN IF NOT EXISTS provider_id TEXT;
+ALTER TABLE api_emails ADD COLUMN IF NOT EXISTS bounced_at TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS password_changed_at TIMESTAMPTZ;
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS webhook_secret TEXT;
+
+CREATE TABLE IF NOT EXISTS suppressions (
+  id SERIAL PRIMARY KEY,
+  workspace_id INT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  email TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (workspace_id, email)
+);
+
+CREATE TABLE IF NOT EXISTS password_resets (
+  id SERIAL PRIMARY KEY,
+  user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_hash TEXT UNIQUE NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_messages_provider ON messages (provider_id);
+CREATE INDEX IF NOT EXISTS idx_api_emails_provider ON api_emails (provider_id);
+ALTER TABLE suppressions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE password_resets ENABLE ROW LEVEL SECURITY;

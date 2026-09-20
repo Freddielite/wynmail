@@ -8,6 +8,7 @@ import { hashKey } from '../apikeys.js';
 import { upsertContact, attachLists } from '../contacts.js';
 import { isEmail, normEmail, cleanName, cleanText, cleanAttrs, senderAllowed } from '../validate.js';
 import { rateLimit } from '../rateLimit.js';
+import { sentToday } from '../usage.js';
 
 const router = Router();
 const fail = (res, status, error) => res.status(status).json({ error });
@@ -97,7 +98,10 @@ const CAMPAIGN_SQL = `SELECT c.id, c.name, c.subject, c.status, c.list_id, c.sch
     (SELECT count(*)::int FROM messages m WHERE m.campaign_id = c.id AND m.status = 'failed') AS failed,
     (SELECT count(*)::int FROM messages m WHERE m.campaign_id = c.id AND m.opened_at IS NOT NULL) AS opened,
     (SELECT count(*)::int FROM messages m WHERE m.campaign_id = c.id AND m.clicked_at IS NOT NULL) AS clicked,
-    (SELECT count(*)::int FROM messages m WHERE m.campaign_id = c.id AND m.unsubscribed_at IS NOT NULL) AS unsubscribed
+    (SELECT count(*)::int FROM messages m WHERE m.campaign_id = c.id AND m.unsubscribed_at IS NOT NULL) AS unsubscribed,
+    (SELECT count(*)::int FROM messages m WHERE m.campaign_id = c.id AND m.delivered_at IS NOT NULL) AS delivered,
+    (SELECT count(*)::int FROM messages m WHERE m.campaign_id = c.id AND m.bounced_at IS NOT NULL) AS bounced,
+    (SELECT count(*)::int FROM messages m WHERE m.campaign_id = c.id AND m.complained_at IS NOT NULL) AS complained
   FROM campaigns c WHERE c.workspace_id = $1`;
 
 router.get('/campaigns', async (req, res) => {
@@ -145,10 +149,9 @@ router.post('/emails', async (req, res) => {
     replyTo = normEmail(b.reply_to);
   }
 
-  const used = await one(
-    `SELECT ((SELECT count(*) FROM messages WHERE workspace_id = $1 AND sent_at >= date_trunc('day', now()))
-           + (SELECT count(*) FROM api_emails WHERE workspace_id = $1 AND status = 'sent' AND created_at >= date_trunc('day', now())))::int AS n`, [ws.id]);
-  if (used.n >= (ws.daily_limit || 0)) return fail(res, 429, `Daily sending limit reached (${ws.daily_limit}).`);
+  const blocked = await one(`SELECT reason FROM suppressions WHERE workspace_id = $1 AND email = $2`, [ws.id, to]);
+  if (blocked) return fail(res, 422, `Not sent: this address is blocked because it previously ${blocked.reason === 'complained' ? 'reported a message as spam' : 'bounced'}.`);
+  if ((await sentToday(ws.id)) >= (ws.daily_limit || 0)) return fail(res, 429, `Daily sending limit reached (${ws.daily_limit}).`);
 
   const rec = await one(
     `INSERT INTO api_emails (workspace_id, api_key_id, to_email, subject) VALUES ($1, $2, $3, $4) RETURNING id`,

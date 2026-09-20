@@ -69,7 +69,24 @@ Create a key on the API page in the app (shown once, revocable, several per work
 
 Limits: 120 requests a minute per key. API emails count toward the workspace daily limit and need an approved sending domain. All provider calls share one throttle (`SEND_GAP_MS`, default 500) so the provider's rate limit is respected.
 
-Tests: `npm run test:security` and `npm run test:api` inside `server`, each against a fresh empty database with `FORCE_PROVIDER=console`.
+Tests inside `server`: `npm run test:csv` needs nothing. `test:security`, `test:api` and `test:batch` each run against a fresh empty database with `FORCE_PROVIDER=console`. `test:batch` also needs `RESEND_WEBHOOK_SECRET` set on the server and `LOG` pointing at the server log file.
+
+## Bounces and spam complaints
+
+Resend tells Wynmail when an email is delivered, bounces or is reported as spam.
+
+1. In Resend open Webhooks, add an endpoint `https://<your-render-url>/webhooks/resend` with the events `email.delivered`, `email.bounced` and `email.complained`.
+2. Copy its signing secret into `RESEND_WEBHOOK_SECRET` on Render.
+
+What happens: permanent bounces and spam complaints mark the contact `bounced` or `complained` and block them from every later campaign, import, API contact and API email. Temporary bounces (full mailbox) are recorded but do not block. Reports and the dashboard show the counts.
+
+A client with their own Resend account adds a webhook to `https://<your-render-url>/webhooks/resend/<workspace id>` and pastes its signing secret in Settings. Webhooks are verified with the Svix signature and rejected if older than 5 minutes.
+
+## Passwords, invites and test emails
+
+- Password reset and team invites are emailed from `SYSTEM_FROM` through the shared Resend key. Until you have a verified domain, the default `onboarding@resend.dev` only reaches the Resend account owner, so share the invite link shown on the Team page instead.
+- Changing or resetting a password signs out every other session.
+- Send test to me on the campaign editor sends the draft to the signed-in user. It only goes to members of the workspace and counts toward the daily limit.
 
 ## Security model
 

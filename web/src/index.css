@@ -143,3 +143,6 @@ img, iframe { max-width: 100%; }
   .stack td.actions { justify-content: flex-end; flex-wrap: wrap; gap: 8px; white-space: normal; padding-top: 10px; }
   .stack td input { flex: 1; min-width: 0; }
 }
+
+.linklike { border: 0; background: none; padding: 4px 8px; color: var(--blue); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+.linklike:hover { text-decoration: underline; }

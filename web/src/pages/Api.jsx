@@ -149,7 +149,7 @@ export default function Api() {
             {created && <p className="muted" style={{ margin: '4px 0 12px' }}>These examples already use your new key.</p>}
             <div style={{ marginTop: 12 }}>
               <Code title="Send an email" text={sendSample} />
-              <p className="muted" style={{ margin: '-8px 0 18px' }}>Single emails have no unsubscribe footer and no link tracking. Use <code>template_id</code> instead of <code>html</code> to send a saved template.</p>
+              <p className="muted" style={{ margin: '-8px 0 18px' }}>Single emails have no unsubscribe footer and no link tracking. Use <code>template_id</code> instead of <code>html</code> to send a saved template. Addresses that bounced or reported spam are blocked with a 422.</p>
               <Code title="Add a contact" text={contactSample} />
               <Code title="Unsubscribe a contact" text={unsubSample} />
               <Code title="Read campaign stats" text={listSample} />

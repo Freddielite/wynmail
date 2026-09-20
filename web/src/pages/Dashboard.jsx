@@ -16,7 +16,7 @@ export default function Dashboard({ workspace }) {
 
   const cards = [
     { l: 'Subscribers', n: stats.subscribers },
-    { l: 'Lists', n: stats.lists },
+    { l: 'Bounced', n: stats.bounced },
     { l: 'Campaigns', n: stats.campaigns },
     { l: 'Emails sent', n: stats.sent },
     { l: 'Open rate', n: rate(stats.opened, stats.sent) },

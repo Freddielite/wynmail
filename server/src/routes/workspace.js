@@ -5,7 +5,16 @@ import { buildEmail } from '../render.js';
 import { upsertContact } from '../contacts.js';
 import { newKey } from '../apikeys.js';
 import { publicWorkspace } from '../auth.js';
-import { encrypt } from '../config.js';
+import { encrypt, decrypt } from '../config.js';
+import { hash } from '../auth.js';
+import crypto from 'crypto';
+import { getProvider } from '../providers/index.js';
+import { throttled } from '../throttle.js';
+import { sentToday } from '../usage.js';
+import { rateLimit } from '../rateLimit.js';
+import { parseCsv, readContacts } from '../csv.js';
+import { createResetToken, resetLink } from '../resets.js';
+import { sendSystemEmail, actionEmail } from '../sysmail.js';
 import { isEmail, normEmail, DOMAIN_RE, TRACKING_RE, cleanName, cleanText, cleanAttrs, senderAllowed } from '../validate.js';
 
 const router = Router({ mergeParams: true });
@@ -80,6 +89,7 @@ router.put('/', async (req, res) => {
   }
 
   const newKey = typeof f.provider_api_key === 'string' && f.provider_api_key.trim() ? encrypt(f.provider_api_key.trim()) : null;
+  const newHook = typeof f.webhook_secret === 'string' && f.webhook_secret.trim() ? encrypt(f.webhook_secret.trim()) : null;
 
   const row = await one(
     `UPDATE workspaces SET
@@ -88,10 +98,12 @@ router.put('/', async (req, res) => {
        reply_to = COALESCE($6, reply_to), tracking_domain = COALESCE($7, tracking_domain),
        footer_address = COALESCE($8, footer_address), rate_per_minute = COALESCE($9, rate_per_minute),
        daily_limit = COALESCE($10, daily_limit), provider = COALESCE($11, provider),
-       provider_api_key = CASE WHEN $13::boolean THEN NULL ELSE COALESCE($12, provider_api_key) END
+       provider_api_key = CASE WHEN $13::boolean THEN NULL ELSE COALESCE($12, provider_api_key) END,
+       webhook_secret = CASE WHEN $15::boolean THEN NULL ELSE COALESCE($14, webhook_secret) END
      WHERE id = $1 RETURNING *`,
     [ws(req), v.name, v.sending_domain, v.from_name, v.from_email, v.reply_to, v.tracking_domain,
-     v.footer_address, v.rate_per_minute, v.daily_limit, v.provider, newKey, f.clear_provider_key === true]
+     v.footer_address, v.rate_per_minute, v.daily_limit, v.provider, newKey, f.clear_provider_key === true,
+     newHook, f.clear_webhook_secret === true]
   );
   res.json(publicWorkspace(row));
 });
@@ -136,28 +148,21 @@ router.post('/contacts', async (req, res) => {
   res.json(await upsertContact(ws(req), req.body, listId));
 });
 
-// CSV import. Header row required with an email column. Existing unsubscribed contacts stay unsubscribed.
+// CSV import. Handles quoted commas, semicolon files, BOMs and duplicate rows. Existing
+// unsubscribed, bounced or complained contacts keep their status.
 router.post('/contacts/import', async (req, res) => {
   const { csv, list_id } = req.body || {};
   if (typeof csv !== 'string' || !csv.trim()) return bad(res, 'csv required');
   const listId = list_id ? Number(list_id) : null;
   if (listId && !(await ownsList(ws(req), listId))) return bad(res, 'unknown list');
 
-  const lines = csv.replace(/^\uFEFF/, '').trim().split(/\r?\n/);
-  const headers = lines.shift().split(',').map((h) => h.trim().toLowerCase());
-  if (!headers.includes('email')) return bad(res, 'csv needs an email column');
-  if (lines.length > MAX_IMPORT_ROWS) return bad(res, `import at most ${MAX_IMPORT_ROWS} rows at a time`);
+  const parsed = readContacts(parseCsv(csv), { maxRows: MAX_IMPORT_ROWS, isEmail, normEmail });
+  if (parsed.error) return bad(res, parsed.error);
 
-  let imported = 0, skipped = 0;
-  for (const line of lines) {
-    const cells = line.split(',').map((c) => c.trim());
-    const row = Object.fromEntries(headers.map((h, i) => [h, cells[i] || '']));
-    if (!isEmail(normEmail(row.email))) { skipped++; continue; }
-    const { email, first_name, last_name, ...rest } = row;
-    await upsertContact(ws(req), { email, first_name, last_name, attributes: rest, consent_source: 'csv-import' }, listId);
-    imported++;
+  for (const c of parsed.contacts) {
+    await upsertContact(ws(req), { ...c, consent_source: 'csv-import' }, listId);
   }
-  res.json({ imported, skipped });
+  res.json({ imported: parsed.contacts.length, skipped: parsed.skipped, duplicates: parsed.duplicates, errors: parsed.errors });
 });
 
 router.delete('/contacts/:id', async (req, res) => {
@@ -203,7 +208,10 @@ router.get('/campaigns', async (req, res) => {
        (SELECT count(*)::int FROM messages m WHERE m.campaign_id = c.id) AS total,
        (SELECT count(*)::int FROM messages m WHERE m.campaign_id = c.id AND m.status = 'sent') AS sent,
        (SELECT count(*)::int FROM messages m WHERE m.campaign_id = c.id AND m.opened_at IS NOT NULL) AS opened,
-       (SELECT count(*)::int FROM messages m WHERE m.campaign_id = c.id AND m.clicked_at IS NOT NULL) AS clicked
+       (SELECT count(*)::int FROM messages m WHERE m.campaign_id = c.id AND m.clicked_at IS NOT NULL) AS clicked,
+       (SELECT count(*)::int FROM messages m WHERE m.campaign_id = c.id AND m.bounced_at IS NOT NULL) AS bounced,
+       (SELECT count(*)::int FROM messages m WHERE m.campaign_id = c.id AND m.complained_at IS NOT NULL) AS complained,
+       (SELECT count(*)::int FROM messages m WHERE m.campaign_id = c.id AND m.delivered_at IS NOT NULL) AS delivered
      FROM campaigns c LEFT JOIN lists l ON l.id = c.list_id
      WHERE c.workspace_id = $1 ORDER BY c.id DESC`, [ws(req)]));
 });
@@ -270,7 +278,7 @@ router.get('/campaigns/:id/preview', async (req, res) => {
 
 router.get('/campaigns/:id/messages', async (req, res) => {
   res.json(await many(
-    `SELECT id, email, token, status, sent_at, opened_at, clicked_at, open_count, click_count, error
+    `SELECT id, email, token, provider_id, status, sent_at, delivered_at, bounced_at, bounce_type, complained_at, opened_at, clicked_at, open_count, click_count, error
      FROM messages WHERE campaign_id = $1 AND workspace_id = $2 ORDER BY id DESC LIMIT 500`,
     [req.params.id, ws(req)]));
 });
@@ -300,8 +308,99 @@ router.delete('/api-keys/:id', async (req, res) => {
 
 router.get('/api-emails', async (req, res) => {
   res.json(await many(
-    `SELECT id, to_email, subject, status, error, created_at FROM api_emails
-     WHERE workspace_id = $1 ORDER BY id DESC LIMIT 25`, [ws(req)]));
+    `SELECT id, to_email, subject, status, error, bounced_at, created_at FROM api_emails
+     WHERE workspace_id = $1 AND kind = 'api' ORDER BY id DESC LIMIT 25`, [ws(req)]));
+});
+
+/* ---------- test email ---------- */
+const testLimit = rateLimit({ windowMs: 3600000, max: 10, key: (req) => `test${req.workspace.id}` });
+
+// Sends the current draft to yourself. Recipients are limited to members of this workspace.
+router.post('/test-email', testLimit, async (req, res) => {
+  const w = req.workspace;
+  if (!senderAllowed(w)) return bad(res, 'Sender not approved: an admin must set your sending domain, and your from email must use it');
+  if (!w.footer_address) return bad(res, 'Add a footer postal address in settings first');
+  const subject = cleanText(req.body?.subject, 290);
+  const html = String(req.body?.html || '').slice(0, MAX_HTML);
+  if (!subject || !html.trim()) return bad(res, 'Add a subject and some content first');
+
+  const me = await one(`SELECT email, name FROM users WHERE id = $1`, [req.user.uid]);
+  let to = me.email;
+  if (req.body?.to !== undefined) {
+    const wanted = normEmail(req.body.to);
+    const member = await one(`SELECT 1 FROM memberships m JOIN users u ON u.id = m.user_id WHERE m.workspace_id = $1 AND u.email = $2`, [w.id, wanted]);
+    if (!member) return bad(res, 'Test emails can only go to members of this workspace');
+    to = wanted;
+  }
+  if ((await sentToday(w.id)) >= (w.daily_limit || 0)) return res.status(429).json({ error: `Daily sending limit reached (${w.daily_limit})` });
+
+  const first = (me.name || '').split(' ')[0] || to.split('@')[0];
+  const built = buildEmail({ workspace: w, contact: { email: to, first_name: first, attributes: {} }, subject: `[Test] ${subject}`, html, token: 'preview' });
+  const rec = await one(`INSERT INTO api_emails (workspace_id, to_email, subject, kind) VALUES ($1, $2, $3, 'test') RETURNING id`, [w.id, to, built.subject]);
+  try {
+    const result = await throttled(() => getProvider(w).send({
+      to, from: `${w.from_name || w.name} <${w.from_email}>`, replyTo: w.reply_to || undefined,
+      apiKey: decrypt(w.provider_api_key) || undefined, ...built
+    }));
+    await query(`UPDATE api_emails SET status = 'sent', provider_id = $2 WHERE id = $1`, [rec.id, result.id || null]);
+    res.json({ ok: true, to });
+  } catch (err) {
+    await query(`UPDATE api_emails SET status = 'failed', error = $2 WHERE id = $1`, [rec.id, String(err.message).slice(0, 500)]);
+    res.status(502).json({ error: `The test email could not be sent: ${String(err.message).slice(0, 200)}` });
+  }
+});
+
+/* ---------- team ---------- */
+const canManageTeam = async (req) => req.workspace.role === 'owner' || (await isAdmin(req.user.uid));
+const MAX_MEMBERS = 20;
+
+router.get('/members', async (req, res) => {
+  res.json({
+    can_manage: await canManageTeam(req),
+    data: await many(
+      `SELECT u.id AS user_id, u.email, u.name, m.role FROM memberships m JOIN users u ON u.id = m.user_id
+       WHERE m.workspace_id = $1 ORDER BY (m.role = 'owner') DESC, u.email`, [ws(req)])
+  });
+});
+
+router.post('/members', async (req, res) => {
+  if (!(await canManageTeam(req))) return res.status(403).json({ error: 'Only the workspace owner can add people' });
+  const email = normEmail(req.body?.email);
+  if (!isEmail(email)) return bad(res, 'Enter a valid email address');
+  const { n } = await one(`SELECT count(*)::int AS n FROM memberships WHERE workspace_id = $1`, [ws(req)]);
+  if (n >= MAX_MEMBERS) return bad(res, `A workspace can have at most ${MAX_MEMBERS} people`);
+
+  const existing = await one(`SELECT id FROM users WHERE email = $1`, [email]);
+  if (existing) {
+    await query(`INSERT INTO memberships (user_id, workspace_id, role) VALUES ($1, $2, 'member') ON CONFLICT DO NOTHING`, [existing.id, ws(req)]);
+    return res.json({ email, invited: false, message: 'They already have an account and can now switch into this workspace.' });
+  }
+
+  // New person: create the account with a random password nobody knows, and let them set their own.
+  const user = await one(`INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id`, [email, await hash(crypto.randomBytes(24).toString('hex'))]);
+  await query(`INSERT INTO memberships (user_id, workspace_id, role) VALUES ($1, $2, 'member')`, [user.id, ws(req)]);
+  const link = resetLink(await createResetToken(user.id, 72));
+  let emailed = false;
+  try {
+    const { html, text } = actionEmail({
+      heading: `You have been added to ${req.workspace.name} on Wynmail`,
+      body: 'Choose a password to get started. The link works once and expires in 3 days.',
+      label: 'Set your password', url: link, note: 'If you were not expecting this, you can ignore the email.'
+    });
+    await sendSystemEmail({ to: email, subject: `Join ${req.workspace.name} on Wynmail`, html, text });
+    emailed = true;
+  } catch (err) {
+    console.error('[invite]', err.message);
+  }
+  res.json({ email, invited: true, emailed, invite_link: link });
+});
+
+router.delete('/members/:userId', async (req, res) => {
+  if (!(await canManageTeam(req))) return res.status(403).json({ error: 'Only the workspace owner can remove people' });
+  if (!/^\d{1,9}$/.test(req.params.userId)) return bad(res, 'bad id');
+  const done = await one(`DELETE FROM memberships WHERE workspace_id = $1 AND user_id = $2 AND role = 'member' RETURNING user_id`, [ws(req), Number(req.params.userId)]);
+  if (!done) return bad(res, 'That person cannot be removed');
+  res.json({ ok: true });
 });
 
 /* ---------- dashboard ---------- */
@@ -315,6 +414,8 @@ router.get('/stats', async (req, res) => {
        (SELECT count(*)::int FROM messages WHERE workspace_id = $1 AND opened_at IS NOT NULL) AS opened,
        (SELECT count(*)::int FROM messages WHERE workspace_id = $1 AND clicked_at IS NOT NULL) AS clicked,
        (SELECT count(*)::int FROM messages WHERE workspace_id = $1 AND status = 'queued') AS queued,
+       (SELECT count(*)::int FROM messages WHERE workspace_id = $1 AND bounced_at IS NOT NULL) AS bounced,
+       (SELECT count(*)::int FROM messages WHERE workspace_id = $1 AND complained_at IS NOT NULL) AS complained,
        ((SELECT count(*) FROM messages WHERE workspace_id = $1 AND sent_at >= date_trunc('day', now())) + (SELECT count(*) FROM api_emails WHERE workspace_id = $1 AND status = 'sent' AND created_at >= date_trunc('day', now())))::int AS sent_today`,
     [ws(req)]
   );

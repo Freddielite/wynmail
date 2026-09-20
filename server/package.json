@@ -7,7 +7,9 @@
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
     "test:security": "node test/security.mjs",
-    "test:api": "node test/api.mjs"
+    "test:api": "node test/api.mjs",
+    "test:batch": "node test/batch.mjs",
+    "test:csv": "node test/csv.mjs"
   },
   "keywords": [],
   "author": "",

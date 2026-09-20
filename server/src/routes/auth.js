@@ -3,6 +3,8 @@ import { one, query } from '../db.js';
 import { hash, verify, sign, requireAuth, publicWorkspace, DUMMY_HASH } from '../auth.js';
 import { isEmail, normEmail, cleanName } from '../validate.js';
 import { rateLimit } from '../rateLimit.js';
+import { createResetToken, consumeResetToken, resetLink } from '../resets.js';
+import { sendSystemEmail, actionEmail } from '../sysmail.js';
 
 const router = Router();
 const slugify = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'workspace';
@@ -52,6 +54,57 @@ router.post('/login', byIp, byAccount, async (req, res) => {
   const ok = await verify(password, user ? user.password_hash : DUMMY_HASH);
   if (!user || !ok) return res.status(401).json({ error: 'invalid credentials' });
   res.json({ token: sign(user), user: { id: user.id, email: user.email, name: user.name } });
+});
+
+const forgotIp = rateLimit({ windowMs: 15 * 60 * 1000, max: 10 });
+const forgotEmail = rateLimit({ windowMs: 60 * 60 * 1000, max: 3, key: (req) => `f|${normEmail(req.body?.email)}` });
+const passwordLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 8, key: (req) => `p|${req.user?.uid}` });
+const okPassword = (pw) => typeof pw === 'string' && pw.length >= 8 && pw.length <= 128;
+
+// Same answer whether or not the account exists, and it answers before doing any work.
+router.post('/forgot', forgotIp, forgotEmail, async (req, res) => {
+  const email = normEmail(req.body?.email);
+  res.json({ ok: true, message: 'If that email has an account, a reset link is on its way.' });
+  if (!isEmail(email)) return;
+  try {
+    const user = await one(`SELECT id, email FROM users WHERE email = $1`, [email]);
+    if (!user) return;
+    const link = resetLink(await createResetToken(user.id, 1));
+    const { html, text } = actionEmail({
+      heading: 'Reset your Wynmail password',
+      body: 'Someone asked to reset the password for this account. The link works once and expires in 1 hour.',
+      label: 'Choose a new password', url: link,
+      note: 'If this was not you, ignore this email. Your password stays the same.'
+    });
+    await sendSystemEmail({ to: user.email, subject: 'Reset your Wynmail password', html, text });
+  } catch (err) {
+    console.error('[forgot]', err.message);
+  }
+});
+
+router.post('/reset', byIp, async (req, res) => {
+  const { token, password } = req.body || {};
+  if (!okPassword(password)) return res.status(400).json({ error: 'password must be 8 to 128 characters' });
+  if (typeof token !== 'string' || token.length < 20 || token.length > 100) {
+    return res.status(400).json({ error: 'This link is invalid or has expired. Request a new one.' });
+  }
+  const userId = await consumeResetToken(token);
+  if (!userId) return res.status(400).json({ error: 'This link is invalid or has expired. Request a new one.' });
+  await query(`UPDATE users SET password_hash = $2, password_changed_at = now() WHERE id = $1`, [userId, await hash(password)]);
+  await query(`UPDATE password_resets SET used_at = COALESCE(used_at, now()) WHERE user_id = $1`, [userId]);
+  res.json({ ok: true });
+});
+
+router.post('/password', requireAuth, passwordLimit, async (req, res) => {
+  const { current, next } = req.body || {};
+  if (!okPassword(next)) return res.status(400).json({ error: 'The new password must be 8 to 128 characters' });
+  const user = await one(`SELECT * FROM users WHERE id = $1`, [req.user.uid]);
+  if (!(await verify(typeof current === 'string' ? current : '', user.password_hash))) {
+    return res.status(400).json({ error: 'Your current password is wrong' });
+  }
+  if (next === current) return res.status(400).json({ error: 'Choose a password different from the current one' });
+  await query(`UPDATE users SET password_hash = $2, password_changed_at = now() WHERE id = $1`, [user.id, await hash(next)]);
+  res.json({ token: sign(user) }); // the caller stays signed in, every other session ends
 });
 
 router.get('/me', requireAuth, async (req, res) => {

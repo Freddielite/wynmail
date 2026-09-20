@@ -5,8 +5,10 @@ import { normEmail, cleanName, cleanAttrs } from './validate.js';
 export async function upsertContact(workspaceId, body, listId) {
   const attrs = cleanAttrs(body.attributes);
   const contact = await one(
-    `INSERT INTO contacts (workspace_id, email, first_name, last_name, attributes, consent_source, consent_at)
-     VALUES ($1, $2, $3, $4, COALESCE($5::jsonb, '{}'::jsonb), $6, now())
+    `INSERT INTO contacts (workspace_id, email, first_name, last_name, attributes, consent_source, consent_at, status)
+     VALUES ($1, $2, $3, $4, COALESCE($5::jsonb, '{}'::jsonb), $6, now(),
+       COALESCE((SELECT CASE s.reason WHEN 'complained' THEN 'complained' ELSE 'bounced' END
+                 FROM suppressions s WHERE s.workspace_id = $1 AND s.email = $2), 'subscribed'))
      ON CONFLICT (workspace_id, email) DO UPDATE SET
        first_name = COALESCE(EXCLUDED.first_name, contacts.first_name),
        last_name = COALESCE(EXCLUDED.last_name, contacts.last_name),

@@ -9,12 +9,14 @@ import adminRoutes from './routes/admin.js';
 import workspaceRoutes from './routes/workspace.js';
 import trackRoutes from './routes/track.js';
 import v1Routes from './routes/v1.js';
+import webhookRoutes from './routes/webhooks.js';
 import { startWorker } from './queue.js';
 
 const app = express();
 app.set('trust proxy', 1);
 // The tracking pixel is embedded by mail clients, so it must be loadable cross-origin.
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
+app.use('/webhooks', webhookRoutes);
 app.use(express.json({ limit: '2mb' }));
 
 const origins = (process.env.FRONTEND_URL || 'http://localhost:5173').split(',').map((s) => s.trim().replace(/\/+$/, ''));

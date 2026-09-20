@@ -4,6 +4,7 @@ import { buildEmail } from './render.js';
 import { decrypt } from './config.js';
 import { senderAllowed } from './validate.js';
 import { throttled } from './throttle.js';
+import { sentToday } from './usage.js';
 
 const MAX_ATTEMPTS = 3;
 const TICK_MS = Number(process.env.QUEUE_TICK_MS || 5000);
@@ -46,15 +47,6 @@ export async function enqueueCampaign(campaignId) {
     await query(`UPDATE campaigns SET status = 'draft', started_at = NULL WHERE id = $1`, [campaign.id]);
     throw err;
   }
-}
-
-async function sentToday(workspaceId) {
-  const row = await one(
-    `SELECT ((SELECT count(*) FROM messages WHERE workspace_id = $1 AND sent_at >= date_trunc('day', now()))
-           + (SELECT count(*) FROM api_emails WHERE workspace_id = $1 AND status = 'sent' AND created_at >= date_trunc('day', now())))::int AS n`,
-    [workspaceId]
-  );
-  return row?.n || 0;
 }
 
 export async function drainOnce() {

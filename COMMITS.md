@@ -32,3 +32,10 @@
 30. `test: add API test suite and share one provider throttle between campaigns and API sends`
 31. `fix(web): remove the tall gap in the mobile header, keep the current page centred in the scrollable menu, and stop buttons in form rows from being clipped`
 32. `feat(web): fade the mobile menu edges as it scrolls, left fade grows from the first swipe and right fade clears at the end`
+33. `feat(bounces): handle signed Resend webhooks for delivered, bounced and complained, and suppress bad addresses in campaigns, imports and the API`
+34. `feat(web): show delivery outcomes in campaign reports, the dashboard and settings`
+35. `feat(campaigns): add Send test to me in the campaign editor`
+36. `feat(auth): add change password, emailed password reset and sign-out of old sessions when a password changes`
+37. `feat(team): add workspace members with emailed invites and owner-only controls`
+38. `fix(import): parse quoted CSV fields, semicolon and tab files, and report duplicates and row errors`
+39. `test: add batch and CSV test suites`

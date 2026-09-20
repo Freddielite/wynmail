@@ -44,7 +44,10 @@ export default function Contacts() {
     const res = await api.importContacts({ csv, list_id: target || null });
     setCsv('');
     await load();
-    return `Imported ${res.imported}${res.skipped ? `, skipped ${res.skipped}` : ''}${targetName ? ` into ${targetName}` : ''}`;
+    const bits = [`Imported ${res.imported}${targetName ? ` into ${targetName}` : ''}`];
+    if (res.duplicates) bits.push(`${res.duplicates} duplicate${res.duplicates === 1 ? '' : 's'} ignored`);
+    if (res.skipped) bits.push(`${res.skipped} skipped${res.errors?.[0] ? ` (row ${res.errors[0].row}: ${res.errors[0].reason})` : ''}`);
+    return bits.join(', ')
   });
 
   const remove = (id) => guard(async () => {
@@ -110,7 +113,7 @@ export default function Contacts() {
 
           <div className="card">
             <h3>Import CSV</h3>
-            <p className="muted" style={{ margin: '4px 0 10px' }}>Header row required, with an email column. Extra columns become merge fields. Goes into the list chosen above.</p>
+            <p className="muted" style={{ margin: '4px 0 10px' }}>Header row required, with an email column. Extra columns become merge fields. Quoted commas, semicolons and tabs are fine. Goes into the list chosen above.</p>
             <input type="file" accept=".csv,text/csv" onChange={readFile} style={{ marginBottom: 10 }} />
             <textarea rows="5" placeholder="email,first_name,company" value={csv} onChange={(e) => setCsv(e.target.value)} />
             <Btn className="btn sm" style={{ marginTop: 10 }} busyText="Importing..." onClick={importCsv}>Import</Btn>
@@ -134,7 +137,7 @@ export default function Contacts() {
                   <tr key={c.id}>
                     <td data-label="Email">{c.email}</td>
                     <td data-label="Name">{[c.first_name, c.last_name].filter(Boolean).join(' ') || '-'}</td>
-                    <td data-label="Status"><span className={`pill ${c.status === 'subscribed' ? 'green' : 'red'}`}>{c.status}</span></td>
+                    <td data-label="Status"><span className={`pill ${c.status === 'subscribed' ? 'green' : c.status === 'unsubscribed' ? 'amber' : 'red'}`}>{c.status}</span></td>
                     <td className="actions"><Btn className="btn danger sm" busyText="Deleting..." onClick={remove(c.id)}>Delete</Btn></td>
                   </tr>
                 ))}

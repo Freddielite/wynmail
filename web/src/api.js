@@ -25,6 +25,13 @@ const ws = (path) => `/api/workspaces/${store.workspaceId}${path}`;
 
 export const api = {
   base: BASE,
+  forgot: (email) => request('/api/auth/forgot', { method: 'POST', body: { email } }),
+  reset: (b) => request('/api/auth/reset', { method: 'POST', body: b }),
+  changePassword: (b) => request('/api/auth/password', { method: 'POST', body: b }),
+  members: () => request(ws('/members')),
+  addMember: (email) => request(ws('/members'), { method: 'POST', body: { email } }),
+  removeMember: (id) => request(ws(`/members/${id}`), { method: 'DELETE' }),
+  testEmail: (b) => request(ws('/test-email'), { method: 'POST', body: b }),
   register: (b) => request('/api/auth/register', { method: 'POST', body: b }),
   login: (b) => request('/api/auth/login', { method: 'POST', body: b }),
   me: () => request('/api/auth/me'),

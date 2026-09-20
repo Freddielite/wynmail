@@ -3,6 +3,12 @@ import { api } from '../api.js';
 import { Btn, useGuard, usePolling, when } from '../ui.jsx';
 
 const blank = { name: '', subject: '', html: '', list_id: '', scheduled_at: '', template_id: '' };
+const outcome = (m) => {
+  if (m.complained_at) return { label: 'spam complaint', cls: 'red' };
+  if (m.bounced_at) return { label: m.bounce_type === 'Permanent' ? 'bounced' : 'soft bounce', cls: m.bounce_type === 'Permanent' ? 'red' : 'amber' };
+  if (m.delivered_at) return { label: 'delivered', cls: 'green' };
+  return { label: m.status, cls: m.status === 'sent' ? 'green' : m.status === 'failed' ? 'red' : 'gray' };
+};
 const pillClass = { draft: 'gray', scheduled: 'amber', sending: 'live', sent: 'green' };
 
 export default function Campaigns() {
@@ -52,6 +58,13 @@ export default function Campaigns() {
     setEditing(created.id);
     return created.id;
   };
+
+  const sendTest = guard(async () => {
+    if (!draft.subject.trim()) throw new Error('Add a subject first');
+    if (!draft.html.trim()) throw new Error('Add some content first');
+    const res = await api.testEmail({ subject: draft.subject, html: draft.html });
+    return `Test sent to ${res.to}. Check your inbox and spam`;
+  });
 
   const saveDraft = guard(async () => { await persist(null); await loadAll(); return 'Draft saved'; });
 
@@ -128,6 +141,7 @@ export default function Campaigns() {
               {draft.scheduled_at ? 'Schedule campaign' : 'Send now'}
             </Btn>
             <Btn className="btn ghost" busyText="Saving..." onClick={saveDraft}>Save draft</Btn>
+            <Btn className="btn ghost" busyText="Sending test..." onClick={sendTest}>Send test to me</Btn>
             <button className="btn ghost" onClick={() => setPreview(draft.html)}>Preview</button>
             {(editing || draft.subject || draft.html) && <button className="btn ghost" onClick={reset}>Clear</button>}
           </div>
@@ -156,6 +170,8 @@ export default function Campaigns() {
                   </td>
                   <td data-label="Sent">
                     <div>{c.sent}/{c.total}</div>
+                    {c.bounced > 0 && <div style={{ color: '#b91c1c', fontSize: 12 }}>{c.bounced} bounced</div>}
+                    {c.complained > 0 && <div style={{ color: '#b91c1c', fontSize: 12 }}>{c.complained} spam complaint{c.complained === 1 ? '' : 's'}</div>}
                     {c.status === 'sending' && c.total > 0 && <div className="bar"><i style={{ width: `${Math.round((c.sent / c.total) * 100)}%` }} /></div>}
                   </td>
                   <td data-label="Opens">{c.opened}</td>
@@ -191,7 +207,7 @@ export default function Campaigns() {
                 {messages.map((m) => (
                   <tr key={m.id}>
                     <td data-label="Recipient">{m.email}</td>
-                    <td data-label="Status"><span className={`pill ${m.status === 'sent' ? 'green' : m.status === 'failed' ? 'red' : 'gray'}`}>{m.status}</span></td>
+                    <td data-label="Status"><span className={`pill ${outcome(m).cls}`} title={m.bounce_type || ''}>{outcome(m).label}</span></td>
                     <td data-label="Opens">{m.open_count}</td>
                     <td data-label="Clicks">{m.click_count}</td>
                     <td data-label="Error" className="muted">{m.error || '-'}</td>
