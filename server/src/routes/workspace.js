@@ -251,8 +251,9 @@ router.put('/campaigns/:id', async (req, res) => {
 });
 
 router.post('/campaigns/:id/send', async (req, res) => {
-  const campaign = await one(`SELECT id FROM campaigns WHERE id = $1 AND workspace_id = $2`, [req.params.id, ws(req)]);
+  const campaign = await one(`SELECT id, subject, html FROM campaigns WHERE id = $1 AND workspace_id = $2`, [req.params.id, ws(req)]);
   if (!campaign) return res.status(404).json({ error: 'not found' });
+  if (!campaign.html.trim()) return bad(res, 'This campaign has no content yet. Add some HTML first');
   if (!senderAllowed(req.workspace)) {
     return bad(res, 'sender not approved: an admin must set your sending domain, and your from email must use it');
   }

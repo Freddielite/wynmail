@@ -50,9 +50,10 @@ export default function Campaigns() {
     setDraft({ ...draft, template_id: e.target.value, subject: t?.subject || draft.subject, html: t?.html || draft.html });
   };
 
-  const persist = async (scheduleAt) => {
+  const persist = async (scheduleAt, asSend = false) => {
     if (!draft.subject.trim()) throw new Error('Add a subject first');
     if (!draft.list_id) throw new Error('Choose a list first');
+    if (asSend && !draft.html.trim()) throw new Error('Add some content first, the email is empty');
     const body = { name: draft.name || draft.subject, subject: draft.subject, html: draft.html,
       list_id: Number(draft.list_id), scheduled_at: scheduleAt };
     if (editing) { await api.updateCampaign(editing, body); return editing; }
@@ -74,11 +75,11 @@ export default function Campaigns() {
     if (draft.scheduled_at) {
       const at = new Date(draft.scheduled_at);
       if (at <= new Date()) throw new Error('Pick a time in the future, or clear the schedule to send now');
-      await persist(at.toISOString());
+      await persist(at.toISOString(), true);
       reset(); await loadAll();
       return `Scheduled for ${at.toLocaleString()}`;
     }
-    const id = await persist(null);
+    const id = await persist(null, true);
     const res = await api.sendCampaign(id);
     reset(); await loadAll();
     return `Sending to ${res.queued} ${res.queued === 1 ? 'subscriber' : 'subscribers'}`;

@@ -80,6 +80,10 @@ check('prototype keys do not leak through merge fields', !prev.data.html.include
 const prev2 = await call('GET', `/api/workspaces/${W}/campaigns/${camp.data.id}/preview`, { token: C });
 check('links fall back to the app URL when no tracking domain is set', prev2.data.html.includes(`${BASE}/t/c/`) && !prev2.data.html.includes('//null'), prev2.data.html.match(/href="[^"]+"/)?.[0]);
 
+const blankCamp = (await call('POST', `/api/workspaces/${W}/campaigns`, { token: C, body: { subject: 'Blank', html: '', list_id: list.data.id } })).data;
+const blankSend = await call('POST', `/api/workspaces/${W}/campaigns/${blankCamp.id}/send`, { token: C });
+check('a campaign with no content cannot be sent', blankSend.status === 400 && /content/i.test(blankSend.data.error || ''), JSON.stringify(blankSend));
+
 // signed click links
 const href = prev.data.html.match(/href="(http[^"]*\/t\/c\/[^"]+)"/)[1].replace(/&amp;/g, '&');
 const ok = await call('GET', href.replace(BASE, ''), { raw: true });
