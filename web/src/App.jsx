@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { BrowserRouter, Routes, Route, NavLink, Navigate, useNavigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, NavLink, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { api, store } from './api.js';
 import Login from './pages/Login.jsx';
 import Dashboard from './pages/Dashboard.jsx';
@@ -13,6 +13,14 @@ import Api from './pages/Api.jsx';
 function Shell({ user, workspaces, onLogout }) {
   const nav = useNavigate();
   const current = workspaces.find((w) => String(w.id) === String(store.workspaceId)) || workspaces[0];
+
+  const { pathname } = useLocation();
+  // On phones the menu scrolls sideways, so keep the current page centred in view.
+  useEffect(() => {
+    const nav = document.querySelector('.nav');
+    const active = nav?.querySelector('a.active');
+    if (nav && active) nav.scrollTo({ left: active.offsetLeft - (nav.clientWidth - active.offsetWidth) / 2, behavior: 'smooth' });
+  }, [pathname]);
 
   const switchWorkspace = (id) => { store.workspaceId = id; nav(0); };
 

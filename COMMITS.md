@@ -30,3 +30,4 @@
 28. `feat(web): add API page with key management, curl examples and recent API sends`
 29. `feat(web): add toasts, busy buttons and live campaign status, plus a one-button send flow and list picker`
 30. `test: add API test suite and share one provider throttle between campaigns and API sends`
+31. `fix(web): remove the tall gap in the mobile header, keep the current page centred in the scrollable menu, and stop buttons in form rows from being clipped`

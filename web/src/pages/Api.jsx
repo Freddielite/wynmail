@@ -81,7 +81,7 @@ export default function Api() {
             <h3>API keys</h3>
             <p className="muted" style={{ margin: '4px 0 12px' }}>Each key only reaches this workspace. Keep keys on your server, never in a website or app that visitors can open.</p>
             <div className="row" style={{ marginBottom: 6 }}>
-              <input placeholder="Name, for example Website" value={name} onChange={(e) => setName(e.target.value)}
+              <input placeholder="Key name, e.g. Website" value={name} onChange={(e) => setName(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && create()} />
               <Btn className="btn sm" busyText="Creating..." onClick={create}>Create key</Btn>
             </div>
