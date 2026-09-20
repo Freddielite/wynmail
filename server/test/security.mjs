@@ -98,6 +98,13 @@ await fetch(`${BASE}/t/u/${tok}`, { method: 'POST' });
 const nowUnsub = (await call('GET', `/api/workspaces/${W}/contacts`, { token: C })).data[0].status;
 check('POST unsubscribe works', nowUnsub === 'unsubscribed', nowUnsub);
 
+// empty list is refused, campaign returns to draft
+const emptyList = await call('POST', `/api/workspaces/${W}/lists`, { token: C, body: { name: 'Empty' } });
+const emptyCamp = await call('POST', `/api/workspaces/${W}/campaigns`, { token: C, body: { subject: 'x', html: 'x', list_id: emptyList.data.id } });
+const emptySend = await call('POST', `/api/workspaces/${W}/campaigns/${emptyCamp.data.id}/send`, { token: C });
+const afterEmpty = (await call('GET', `/api/workspaces/${W}/campaigns`, { token: C })).data.find((c) => c.id === emptyCamp.data.id);
+check('sending to an empty list is refused and stays draft', emptySend.status === 400 && afterEmpty.status === 'draft', `${emptySend.status} ${afterEmpty?.status}`);
+
 // import cap
 const big = 'email\n' + Array.from({ length: 5001 }, (_, i) => `u${i}@example.com`).join('\n');
 check('oversized import is refused', (await call('POST', `/api/workspaces/${W}/contacts/import`, { token: C, body: { csv: big } })).status === 400);

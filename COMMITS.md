@@ -25,3 +25,4 @@
 23. `feat(brand): add refined Globe mail logo, favicon and brand assets, use logo in sidebar and login`
 24. `fix(web): make every page responsive, with a scrollable mobile nav, sign out and workspace switcher on phones, and card layouts for tables`
 25. `fix(web): pin sidebar account and sign out section to the bottom of the panel and keep the sidebar fixed while scrolling`
+26. `fix(queue): refuse to send campaigns whose list has no subscribed contacts and return them to draft`

@@ -42,6 +42,7 @@ export async function enqueueCampaign(campaignId) {
        ) SELECT count(*)::int AS n FROM ins`,
       [campaign.id, campaign.workspace_id, campaign.list_id]
     );
+    if (!res.n) throw new Error('this list has no subscribed contacts');
     return res.n;
   } catch (err) {
     await query(`UPDATE campaigns SET status = 'draft', started_at = NULL WHERE id = $1`, [campaign.id]);
