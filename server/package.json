@@ -13,7 +13,9 @@
     "test:forms": "node test/forms.mjs",
     "test:automations": "node test/automations.mjs",
     "test:quickwins": "node test/quickwins.mjs",
-    "test:domain": "node test/domain.mjs"
+    "test:domain": "node test/domain.mjs",
+    "test:builder": "node test/builder.mjs",
+    "test:designs": "node test/designs.mjs"
   },
   "keywords": [],
   "author": "",

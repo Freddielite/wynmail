@@ -25,3 +25,13 @@ export function senderAllowed(ws) {
   const emailDomain = email.split('@')[1];
   return emailDomain === domain || emailDomain.endsWith('.' + domain);
 }
+
+// Visual builder designs are stored as JSON next to the HTML they render to. Only the HTML is ever sent.
+export function readDesign(d) {
+  if (d === undefined) return { set: false, value: null };
+  if (d === null) return { set: true, value: null };
+  if (typeof d !== 'object' || Array.isArray(d)) return { error: 'The email design is not valid' };
+  const json = JSON.stringify(d);
+  if (json.length > 300000) return { error: 'This email design is too large' };
+  return { set: true, value: json };
+}

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { many, one, query } from '../db.js';
-import { cleanName, cleanText, senderAllowed } from '../validate.js';
+import { cleanName, cleanText, senderAllowed, readDesign } from '../validate.js';
 
 const router = Router({ mergeParams: true });
 const bad = (res, msg) => res.status(400).json({ error: msg });
@@ -25,7 +25,9 @@ function readAutomation(b) {
     if (!subject) return { error: `Email ${i + 1} needs a subject` };
     if (!html.trim()) return { error: `Email ${i + 1} has no content yet` };
     if (!Number.isInteger(delay) || delay < 0 || delay > MAX_DELAY) return { error: `Email ${i + 1} has an invalid delay` };
-    out.push({ delay_minutes: delay, subject, html, preview_text: cleanText(s?.preview_text, 150) });
+    const dz = readDesign(s?.design);
+    if (dz.error) return { error: `Email ${i + 1}: ${dz.error}` };
+    out.push({ delay_minutes: delay, subject, html, preview_text: cleanText(s?.preview_text, 150), design: dz.set ? dz.value : null });
   }
   return { value: { name, include_imports: b.include_imports === true, active: b.active !== false, steps: out } };
 }
@@ -58,7 +60,7 @@ router.get('/:id', async (req, res) => {
   const a = await one(`SELECT * FROM automations WHERE id = $1 AND workspace_id = $2`, [idOf(req), wid(req)]);
   if (!a) return res.status(404).json({ error: 'not found' });
   const steps = await many(
-    `SELECT s.id, s.position, s.delay_minutes, s.subject, s.html, s.preview_text,
+    `SELECT s.id, s.position, s.delay_minutes, s.subject, s.html, s.preview_text, s.design,
        (SELECT count(*)::int FROM messages m WHERE m.step_id = s.id AND m.status = 'sent') AS sent,
        (SELECT count(*)::int FROM messages m WHERE m.step_id = s.id AND m.opened_at IS NOT NULL) AS opened,
        (SELECT count(*)::int FROM messages m WHERE m.step_id = s.id AND m.clicked_at IS NOT NULL) AS clicked
@@ -81,11 +83,11 @@ async function saveSteps(automationId, steps) {
   const have = new Set(existing.map((e) => e.position));
   for (const [i, s] of steps.entries()) {
     if (have.has(i)) {
-      await query(`UPDATE automation_steps SET delay_minutes = $3, subject = $4, html = $5, preview_text = $6 WHERE automation_id = $1 AND position = $2`,
-        [automationId, i, s.delay_minutes, s.subject, s.html, s.preview_text]);
+      await query(`UPDATE automation_steps SET delay_minutes = $3, subject = $4, html = $5, preview_text = $6, design = $7::jsonb WHERE automation_id = $1 AND position = $2`,
+        [automationId, i, s.delay_minutes, s.subject, s.html, s.preview_text, s.design]);
     } else {
-      await query(`INSERT INTO automation_steps (automation_id, position, delay_minutes, subject, html, preview_text) VALUES ($1, $2, $3, $4, $5, $6)`,
-        [automationId, i, s.delay_minutes, s.subject, s.html, s.preview_text]);
+      await query(`INSERT INTO automation_steps (automation_id, position, delay_minutes, subject, html, preview_text, design) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)`,
+        [automationId, i, s.delay_minutes, s.subject, s.html, s.preview_text, s.design]);
     }
   }
   await query(`DELETE FROM automation_steps WHERE automation_id = $1 AND position >= $2`, [automationId, steps.length]);

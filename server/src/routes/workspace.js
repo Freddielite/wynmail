@@ -19,7 +19,7 @@ import { createResetToken, resetLink } from '../resets.js';
 import { sendSystemEmail, actionEmail } from '../sysmail.js';
 import formsAdmin from './formsAdmin.js';
 import automationsAdmin from './automationsAdmin.js';
-import { isEmail, normEmail, DOMAIN_RE, TRACKING_RE, cleanName, cleanText, cleanAttrs, senderAllowed } from '../validate.js';
+import { isEmail, normEmail, DOMAIN_RE, TRACKING_RE, cleanName, cleanText, cleanAttrs, senderAllowed, readDesign } from '../validate.js';
 
 const router = Router({ mergeParams: true });
 const ws = (req) => req.workspace.id;
@@ -187,20 +187,24 @@ router.get('/templates', async (req, res) => {
 
 router.post('/templates', async (req, res) => {
   const { name, subject, html } = req.body || {};
+  const dz = readDesign(req.body?.design);
+  if (dz.error) return bad(res, dz.error);
   res.json(await one(
-    `INSERT INTO templates (workspace_id, name, subject, html) VALUES ($1, $2, $3, $4) RETURNING *`,
-    [ws(req), cleanName(name) || 'Untitled', cleanText(subject, 300), String(html || '').slice(0, MAX_HTML)]
+    `INSERT INTO templates (workspace_id, name, subject, html, design) VALUES ($1, $2, $3, $4, $5::jsonb) RETURNING *`,
+    [ws(req), cleanName(name) || 'Untitled', cleanText(subject, 300), String(html || '').slice(0, MAX_HTML), dz.value]
   ));
 });
 
 router.put('/templates/:id', async (req, res) => {
   const { name, subject, html } = req.body || {};
+  const dz = readDesign(req.body?.design);
+  if (dz.error) return bad(res, dz.error);
   const row = await one(
     `UPDATE templates SET name = COALESCE($3, name), subject = COALESCE($4, subject),
-       html = COALESCE($5, html), updated_at = now()
+       html = COALESCE($5, html), design = CASE WHEN $6::boolean THEN $7::jsonb ELSE design END, updated_at = now()
      WHERE id = $1 AND workspace_id = $2 RETURNING *`,
     [req.params.id, ws(req), name === undefined ? null : cleanName(name),
-     subject === undefined ? null : cleanText(subject, 300), html === undefined ? null : String(html).slice(0, MAX_HTML)]
+     subject === undefined ? null : cleanText(subject, 300), html === undefined ? null : String(html).slice(0, MAX_HTML), dz.set, dz.value]
   );
   if (!row) return res.status(404).json({ error: 'not found' });
   res.json(row);
@@ -233,10 +237,12 @@ router.post('/campaigns', async (req, res) => {
   if (!(await ownsList(ws(req), Number(list_id)))) return bad(res, 'unknown list');
   const when = scheduled_at ? new Date(scheduled_at) : null;
   if (when && Number.isNaN(when.getTime())) return bad(res, 'invalid schedule time');
+  const dz = readDesign(req.body?.design);
+  if (dz.error) return bad(res, dz.error);
   res.json(await one(
-    `INSERT INTO campaigns (workspace_id, name, subject, html, list_id, scheduled_at, status, preview_text)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
-    [ws(req), cleanName(name) || subj, subj, String(html || '').slice(0, MAX_HTML), Number(list_id), when, when ? 'scheduled' : 'draft', cleanText(preview_text, 150)]
+    `INSERT INTO campaigns (workspace_id, name, subject, html, list_id, scheduled_at, status, preview_text, design)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb) RETURNING *`,
+    [ws(req), cleanName(name) || subj, subj, String(html || '').slice(0, MAX_HTML), Number(list_id), when, when ? 'scheduled' : 'draft', cleanText(preview_text, 150), dz.value]
   ));
 });
 
@@ -245,15 +251,18 @@ router.put('/campaigns/:id', async (req, res) => {
   if (list_id && !(await ownsList(ws(req), Number(list_id)))) return bad(res, 'unknown list');
   const when = scheduled_at ? new Date(scheduled_at) : null;
   if (when && Number.isNaN(when.getTime())) return bad(res, 'invalid schedule time');
+  const dz = readDesign(req.body?.design);
+  if (dz.error) return bad(res, dz.error);
   const row = await one(
     `UPDATE campaigns SET name = COALESCE($3, name), subject = COALESCE($4, subject),
        html = COALESCE($5, html), list_id = COALESCE($6, list_id), scheduled_at = $7,
        preview_text = COALESCE($8, preview_text),
+       design = CASE WHEN $9::boolean THEN $10::jsonb ELSE design END,
        status = CASE WHEN $7::timestamptz IS NOT NULL THEN 'scheduled' ELSE 'draft' END
      WHERE id = $1 AND workspace_id = $2 AND status IN ('draft','scheduled') RETURNING *`,
     [req.params.id, ws(req), name === undefined ? null : cleanName(name),
      subject === undefined ? null : cleanText(subject, 300), html === undefined ? null : String(html).slice(0, MAX_HTML),
-     list_id ? Number(list_id) : null, when, preview_text === undefined ? null : cleanText(preview_text, 150)]
+     list_id ? Number(list_id) : null, when, preview_text === undefined ? null : cleanText(preview_text, 150), dz.set, dz.value]
   );
   if (!row) return res.status(404).json({ error: 'not found or already sent' });
   res.json(row);
@@ -498,8 +507,8 @@ router.post('/campaigns/:id/duplicate', async (req, res) => {
   const c = await one(`SELECT * FROM campaigns WHERE id = $1 AND workspace_id = $2`, [req.params.id, ws(req)]);
   if (!c) return res.status(404).json({ error: 'not found' });
   res.json(await one(
-    `INSERT INTO campaigns (workspace_id, name, subject, html, list_id, preview_text, status) VALUES ($1, $2, $3, $4, $5, $6, 'draft') RETURNING *`,
-    [ws(req), cleanName(`Copy of ${c.name}`, 100), c.subject, c.html, c.list_id, c.preview_text]));
+    `INSERT INTO campaigns (workspace_id, name, subject, html, list_id, preview_text, status, design) VALUES ($1, $2, $3, $4, $5, $6, 'draft', $7::jsonb) RETURNING *`,
+    [ws(req), cleanName(`Copy of ${c.name}`, 100), c.subject, c.html, c.list_id, c.preview_text, c.design ? JSON.stringify(c.design) : null]));
 });
 
 /* ---------- domain check ---------- */

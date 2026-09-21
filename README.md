@@ -69,7 +69,19 @@ Create a key on the API page in the app (shown once, revocable, several per work
 
 Limits: 120 requests a minute per key. API emails count toward the workspace daily limit and need an approved sending domain. All provider calls share one throttle (`SEND_GAP_MS`, default 500) so the provider's rate limit is respected.
 
-Tests inside `server`: `npm run test:csv` needs nothing. `test:security`, `test:api`, `test:batch`, `test:forms`, `test:automations` and `test:quickwins` each run against a fresh empty database with `FORCE_PROVIDER=console`. `test:automations` also needs `AUTOMATION_MINUTE_MS=1000` on the server. `test:domain` needs nothing. `test:quickwins`, `test:batch` and `test:forms` also need `RESEND_WEBHOOK_SECRET` set on the server and `LOG` pointing at the server log file.
+Tests inside `server`: `npm run test:csv` needs nothing. `test:security`, `test:api`, `test:batch`, `test:forms`, `test:automations`, `test:quickwins` and `test:designs` each run against a fresh empty database with `FORCE_PROVIDER=console`. `test:automations` also needs `AUTOMATION_MINUTE_MS=1000` on the server. `test:builder` and `test:domain` need nothing. `test:quickwins`, `test:batch` and `test:forms` also need `RESEND_WEBHOOK_SECRET` set on the server and `LOG` pointing at the server log file.
+
+## Email builder
+
+Templates, campaigns and every automation email have a **Visual** tab and an **HTML** tab.
+
+- The visual builder works with blocks: heading, text, image, button, two columns, divider, spacer, social links and custom HTML. Drag blocks from the palette (or click them), drag to reorder, drag into a column, and edit each block in the side panel. Undo and redo cover every change, and Delete removes the selected block.
+- A gallery of designs (Welcome, Newsletter, Promotion, Announcement, Simple letter, Blank) plus your own saved templates is the starting point. Email-wide style (background, width, font, colors) lives in the same panel when no block is selected.
+- Preview and Phone views show the email with sample names filled in.
+- The design is stored as JSON next to the email-safe HTML it renders to (tables and inline styles, no scripts). Only the HTML is ever sent, so an email keeps working if the builder changes. Text, colors, sizes and links are sanitised before they reach the HTML.
+- Every designed email has a locked footer block. The `{{footer}}` token places the address and unsubscribe link inside the design, and plain HTML emails still get the footer at the end.
+- Editing the HTML tab by hand disconnects the visual design. Pictures are added by web address for now.
+- The renderer is pure JavaScript in `web/src/builder/render.js`, so the tests import it directly.
 
 ## Everyday tools
 

@@ -58,3 +58,9 @@
 56. `feat(export): add spreadsheet-safe CSV export for contacts and campaign reports`
 57. `fix(api): add the missing messages.unsubscribed_at column so /v1/campaigns works and unsubscribes are counted per campaign`
 58. `test: add quick wins and domain checker test suites, and cover the campaign stats API`
+59. `feat(builder): add a drag-and-drop email builder with blocks, columns, styling, undo and redo, and phone preview`
+60. `feat(builder): render designs to sanitised, email-safe HTML and store the design beside it`
+61. `feat(builder): add a design gallery with six starting designs plus saved templates`
+62. `feat(web): use the visual builder in templates, campaigns and automation emails, with an HTML tab as an alternative`
+63. `feat(email): place the unsubscribe footer inside designed emails with a footer token`
+64. `test: add builder, design storage and browser suites for the email builder`

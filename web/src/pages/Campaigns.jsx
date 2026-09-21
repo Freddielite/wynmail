@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { Btn, useGuard, usePolling, when } from '../ui.jsx';
+import EditorField from '../builder/EditorField.jsx';
 
-const blank = { name: '', subject: '', preview_text: '', html: '', list_id: '', scheduled_at: '', template_id: '' };
+const blank = { name: '', subject: '', preview_text: '', html: '', design: null, list_id: '', scheduled_at: '', template_id: '' };
 const outcome = (m) => {
   if (m.complained_at) return { label: 'spam complaint', cls: 'red' };
   if (m.bounced_at) return { label: m.bounce_type === 'Permanent' ? 'bounced' : 'soft bounce', cls: m.bounce_type === 'Permanent' ? 'red' : 'amber' };
@@ -18,6 +19,7 @@ export default function Campaigns() {
   const [templates, setTemplates] = useState([]);
   const [draft, setDraft] = useState(blank);
   const [editing, setEditing] = useState(null);
+  const [editorKey, setEditorKey] = useState(0);
   const [preview, setPreview] = useState('');
   const [detail, setDetail] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -43,18 +45,21 @@ export default function Campaigns() {
   const picked = lists.find((l) => String(l.id) === String(draft.list_id));
   const skipped = picked ? picked.contact_count - picked.subscribed_count : 0;
   const set = (k) => (e) => setDraft({ ...draft, [k]: e.target.value });
-  const reset = () => { setEditing(null); setDraft(blank); setPreview(''); };
+  const reset = () => { setEditing(null); setDraft(blank); setPreview(''); setEditorKey((k) => k + 1); };
 
   const useTemplate = (e) => {
     const t = templates.find((x) => String(x.id) === e.target.value);
-    setDraft({ ...draft, template_id: e.target.value, subject: t?.subject || draft.subject, html: t?.html || draft.html });
+    if (!t) return setDraft({ ...draft, template_id: '' });
+    if (draft.html.trim() && !window.confirm('Replace what you have written with this template?')) return;
+    setDraft({ ...draft, template_id: e.target.value, subject: draft.subject.trim() ? draft.subject : (t.subject || ''), html: t.html, design: t.design || null });
+    setEditorKey((k) => k + 1);
   };
 
   const persist = async (scheduleAt, asSend = false) => {
     if (!draft.subject.trim()) throw new Error('Add a subject first');
     if (!draft.list_id) throw new Error('Choose a list first');
     if (asSend && !draft.html.trim()) throw new Error('Add some content first, the email is empty');
-    const body = { name: draft.name || draft.subject, subject: draft.subject, html: draft.html, preview_text: draft.preview_text,
+    const body = { name: draft.name || draft.subject, subject: draft.subject, html: draft.html, design: draft.design, preview_text: draft.preview_text,
       list_id: Number(draft.list_id), scheduled_at: scheduleAt };
     if (editing) { await api.updateCampaign(editing, body); return editing; }
     const created = await api.createCampaign(body);
@@ -93,84 +98,84 @@ export default function Campaigns() {
 
   const showPreview = (id) => guard(async () => {
     setPreview((await api.campaignPreview(id)).html);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setTimeout(() => document.getElementById('rendered-preview')?.scrollIntoView({ behavior: 'smooth' }), 50);
   });
+
+  const edit = (c) => {
+    setEditing(c.id);
+    setDraft({ name: c.name, subject: c.subject, preview_text: c.preview_text || '', html: c.html, design: c.design || null, list_id: c.list_id || '', scheduled_at: '', template_id: '' });
+    setEditorKey((k) => k + 1);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   const duplicate = (c) => guard(async () => {
     const copy = await api.duplicateCampaign(c.id);
     await loadAll();
     edit(copy);
-    return `Copy created. Edit it below, then send`;
+    return 'Copy created. Edit it below, then send';
   });
 
   const openReport = (c) => guard(async () => { setDetail(c); setMessages(await api.campaignMessages(c.id)); });
-
-  const edit = (c) => {
-    setEditing(c.id);
-    setDraft({ name: c.name, subject: c.subject, preview_text: c.preview_text || '', html: c.html, list_id: c.list_id || '', scheduled_at: '', template_id: '' });
-    setPreview(c.html);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
 
   return (
     <>
       <h1>Campaigns</h1>
       <p className="muted" style={{ marginBottom: 20 }}>Build, schedule and track sends.</p>
 
-      <div className="grid cols-2">
-        <div className="card">
-          <h3>{editing ? `Editing campaign #${editing}` : 'New campaign'}</h3>
-          <div className="field" style={{ marginTop: 12 }}><label>Name</label><input value={draft.name} onChange={set('name')} /></div>
-          <div className="field"><label>Subject</label><input placeholder="Hello {{first_name|there}}" value={draft.subject} onChange={set('subject')} />
-            <div className="muted" style={{ marginTop: 4 }}>Tip: <code>{'{{first_name|there}}'}</code> uses "there" when a contact has no first name.</div>
-          </div>
-          <div className="field"><label>Preview text (optional)</label><input placeholder="The short line inboxes show after the subject" maxLength={150} value={draft.preview_text} onChange={set('preview_text')} /></div>
-          <div className="row" style={{ marginBottom: 14, alignItems: 'flex-start' }}>
-            <div style={{ flex: 1 }}>
-              <label>List</label>
-              <select value={draft.list_id} onChange={set('list_id')}>
-                <option value="">Choose a list</option>
-                {lists.map((l) => <option key={l.id} value={l.id}>{l.name} ({l.subscribed_count} can receive)</option>)}
-              </select>
+      <div className="card">
+        <h3>{editing ? `Editing campaign #${editing}` : 'New campaign'}</h3>
+        <div className="grid cols-2" style={{ marginTop: 12 }}>
+          <div>
+            <div className="field"><label>Name</label><input value={draft.name} onChange={set('name')} /></div>
+            <div className="field"><label>Subject</label><input placeholder="Hello {{first_name|there}}" value={draft.subject} onChange={set('subject')} />
+              <div className="muted" style={{ marginTop: 4 }}>Tip: <code>{'{{first_name|there}}'}</code> uses "there" when a contact has no first name.</div>
             </div>
-            <div style={{ flex: 1 }}>
-              <label>Start from template</label>
-              <select value={draft.template_id} onChange={useTemplate}>
-                <option value="">None</option>
-                {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-              </select>
+            <div className="field"><label>Preview text (optional)</label><input placeholder="The short line inboxes show after the subject" maxLength={150} value={draft.preview_text} onChange={set('preview_text')} /></div>
+          </div>
+          <div>
+            <div className="row" style={{ marginBottom: 14, alignItems: 'flex-start' }}>
+              <div style={{ flex: 1 }}>
+                <label>List</label>
+                <select value={draft.list_id} onChange={set('list_id')}>
+                  <option value="">Choose a list</option>
+                  {lists.map((l) => <option key={l.id} value={l.id}>{l.name} ({l.subscribed_count} can receive)</option>)}
+                </select>
+              </div>
+              <div style={{ flex: 1 }}>
+                <label>Start from template</label>
+                <select value={draft.template_id} onChange={useTemplate}>
+                  <option value="">None</option>
+                  {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+              </div>
             </div>
-          </div>
-          {skipped > 0 && (
-            <div className="muted" style={{ margin: '-6px 0 14px' }}>
-              {skipped} of {picked.contact_count} contacts in this list will be skipped: they unsubscribed, bounced or reported spam.
+            {skipped > 0 && <div className="muted" style={{ margin: '-6px 0 14px' }}>{skipped} of {picked.contact_count} contacts in this list will be skipped: they unsubscribed, bounced or reported spam.</div>}
+            <div className="field">
+              <label>Send later (optional)</label>
+              <input type="datetime-local" value={draft.scheduled_at} onChange={set('scheduled_at')} />
+              <div className="muted" style={{ marginTop: 4 }}>{draft.scheduled_at ? 'The main button will schedule this campaign.' : 'Leave empty to send right away.'}</div>
             </div>
-          )}
-          <div className="field">
-            <label>Send later (optional)</label>
-            <input type="datetime-local" value={draft.scheduled_at} onChange={set('scheduled_at')} />
-            <div className="muted" style={{ marginTop: 4 }}>{draft.scheduled_at ? 'The main button will schedule this campaign.' : 'Leave empty to send right away.'}</div>
-          </div>
-          <div className="field"><label>HTML</label>
-            <textarea rows="12" value={draft.html} onChange={set('html')} />
-          </div>
-          <div className="row" style={{ flexWrap: 'wrap' }}>
-            <Btn busyText={draft.scheduled_at ? 'Scheduling...' : 'Sending...'} onClick={launch}>
-              {draft.scheduled_at ? 'Schedule campaign' : 'Send now'}
-            </Btn>
-            <Btn className="btn ghost" busyText="Saving..." onClick={saveDraft}>Save draft</Btn>
-            <Btn className="btn ghost" busyText="Sending test..." onClick={sendTest}>Send test to me</Btn>
-            <button className="btn ghost" onClick={() => setPreview(draft.html)}>Preview</button>
-            {(editing || draft.subject || draft.html) && <button className="btn ghost" onClick={reset}>Clear</button>}
           </div>
         </div>
 
-        <div className="card">
-          <h3>Preview</h3>
-          <iframe sandbox="" referrerPolicy="no-referrer" className="preview" title="campaign-preview" srcDoc={preview || draft.html} />
-          <p className="muted" style={{ marginTop: 8 }}>The editor preview shows raw merge fields. Use Preview on a saved campaign to see tracked links and the footer.</p>
+        <label style={{ marginTop: 6 }}>Content</label>
+        <EditorField key={editorKey} value={draft} onChange={(v) => setDraft((d) => ({ ...d, html: v.html, design: v.design }))} templates={templates} />
+
+        <div className="row" style={{ flexWrap: 'wrap', marginTop: 16 }}>
+          <Btn busyText={draft.scheduled_at ? 'Scheduling...' : 'Sending...'} onClick={launch}>{draft.scheduled_at ? 'Schedule campaign' : 'Send now'}</Btn>
+          <Btn className="btn ghost" busyText="Saving..." onClick={saveDraft}>Save draft</Btn>
+          <Btn className="btn ghost" busyText="Sending test..." onClick={sendTest}>Send test to me</Btn>
+          {(editing || draft.subject || draft.html) && <button className="btn ghost" onClick={reset}>Clear</button>}
         </div>
       </div>
+
+      {preview && (
+        <div className="card" id="rendered-preview" style={{ marginTop: 18 }}>
+          <div className="between"><h3>Rendered preview</h3><button className="btn ghost sm" onClick={() => setPreview('')}>Close</button></div>
+          <p className="muted" style={{ margin: '4px 0 10px' }}>Exactly as the first contact would receive it, with tracked links and the footer.</p>
+          <iframe sandbox="" referrerPolicy="no-referrer" className="preview" title="campaign-preview" srcDoc={preview} />
+        </div>
+      )}
 
       <div className="card" style={{ marginTop: 18 }}>
         <div className="between"><h3>All campaigns</h3>{sending && <span className="muted">Updating live</span>}</div>

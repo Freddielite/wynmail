@@ -48,11 +48,23 @@ export function complianceFooter(workspace, base, token) {
   </div>`;
 }
 
+const FOOTER_TOKEN = /\{\{\s*footer\s*\}\}/gi;
+const FOOTER_MARK = '<!--wm-footer-->';
+
 export function buildEmail({ workspace, contact, subject, html, token, preheader = '' }) {
   const base = trackingBase(workspace);
-  let body = merge(html, contact, { html: true });
+  // Designed emails put {{footer}} where the unsubscribe footer belongs. Everything else gets it at the end.
+  const hasToken = new RegExp(FOOTER_TOKEN.source, 'i').test(String(html || ''));
+  const marked = String(html || '').replace(FOOTER_TOKEN, FOOTER_MARK);
+  let body = merge(marked, contact, { html: true });
   body = rewriteLinks(body, base, token);
-  body += complianceFooter(workspace, base, token);
+  const footer = complianceFooter(workspace, base, token);
+  if (hasToken) {
+    const first = body.indexOf(FOOTER_MARK);
+    body = body.slice(0, first) + footer + body.slice(first + FOOTER_MARK.length).split(FOOTER_MARK).join('');
+  } else {
+    body += footer;
+  }
   body += `<img src="${base}/t/o/${token}.png" width="1" height="1" alt="" style="display:none">`;
   // The preview text inboxes show after the subject. Hidden in the email itself, padded so body text does not leak in.
   const pre = preheader

@@ -1,15 +1,15 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { Btn, useGuard, usePolling, when } from '../ui.jsx';
-
-const WELCOME = `<h1 style="color:#0b2a5b">Welcome, {{first_name}}!</h1>
-<p>Thanks for joining us. Here is what you can expect from us, and how to reach us any time.</p>
-<p><a href="https://wyntek.ng" style="background:#1d4ed8;color:#fff;padding:12px 22px;border-radius:999px;text-decoration:none;display:inline-block">Visit our website</a></p>`;
+import EditorField from '../builder/EditorField.jsx';
+import { PRESETS } from '../builder/presets.js';
+import { renderDesign } from '../builder/render.js';
 
 const UNITS = { minutes: 1, hours: 60, days: 1440 };
-const newStep = (over = {}) => ({ id: null, value: 0, unit: 'minutes', subject: '', preview_text: '', html: '', stats: null, ...over });
-const DEFAULT = () => ({ name: 'Welcome email', list_id: '', include_imports: false, active: true,
-  steps: [newStep({ subject: 'Welcome, {{first_name}}!', html: WELCOME })] });
+const newStep = (over = {}) => ({ id: null, value: 0, unit: 'minutes', subject: '', preview_text: '', html: '', design: null, kv: 0, stats: null, ...over });
+// A ready-made welcome email built with the visual builder, so a new automation only needs a list.
+const welcomeStep = () => { const design = PRESETS.find((p) => p.key === 'welcome').make(); return newStep({ subject: 'Welcome, {{first_name|friend}}!', html: renderDesign(design), design }); };
+const DEFAULT = () => ({ name: 'Welcome email', list_id: '', include_imports: false, active: true, steps: [welcomeStep()] });
 
 // Show a stored delay in the friendliest unit.
 function splitDelay(minutes) {
@@ -54,7 +54,7 @@ export default function Automations() {
     if (!draft.list_id) throw new Error('Choose the list that starts it');
     const body = {
       name: draft.name, list_id: Number(draft.list_id), include_imports: draft.include_imports, active: draft.active,
-      steps: draft.steps.map((s) => ({ delay_minutes: Math.round(Number(s.value || 0) * UNITS[s.unit]), subject: s.subject, preview_text: s.preview_text, html: s.html }))
+      steps: draft.steps.map((s) => ({ delay_minutes: Math.round(Number(s.value || 0) * UNITS[s.unit]), subject: s.subject, preview_text: s.preview_text, html: s.html, design: s.design }))
     };
     if (editing) await api.updateAutomation(editing, body); else await api.createAutomation(body);
     const msg = editing ? 'Automation saved' : draft.active ? 'Automation is on. New people on the list will get these emails' : 'Automation saved, currently paused';
@@ -67,7 +67,7 @@ export default function Automations() {
     const a = await api.automation(id);
     setEditing(a.id);
     setDraft({ name: a.name, list_id: a.list_id || '', include_imports: a.include_imports, active: a.status === 'active',
-      steps: a.steps.map((s) => newStep({ id: s.id, ...splitDelay(s.delay_minutes), subject: s.subject, preview_text: s.preview_text || '', html: s.html, stats: { sent: s.sent, opened: s.opened, clicked: s.clicked } })) });
+      steps: a.steps.map((s) => newStep({ id: s.id, ...splitDelay(s.delay_minutes), subject: s.subject, preview_text: s.preview_text || '', html: s.html, design: s.design || null, stats: { sent: s.sent, opened: s.opened, clicked: s.clicked } })) });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   });
 
@@ -100,7 +100,7 @@ export default function Automations() {
 
   const useTemplate = (i, id) => {
     const t = templates.find((x) => String(x.id) === id);
-    if (t) setStep(i, { subject: t.subject || draft.steps[i].subject, html: t.html || draft.steps[i].html });
+    if (t) setStep(i, { subject: draft.steps[i].subject.trim() ? draft.steps[i].subject : (t.subject || ''), html: t.html || draft.steps[i].html, design: t.design || null, kv: draft.steps[i].kv + 1 });
   };
 
   const listName = (id) => lists.find((l) => String(l.id) === String(id))?.name;
@@ -118,7 +118,7 @@ export default function Automations() {
         </div>
       )}
 
-      <div className="grid cols-2">
+      <div className="grid">
         <div className="card">
           <h3>{editing ? 'Edit automation' : 'New automation'}</h3>
           <div className="field" style={{ marginTop: 12 }}><label>Name (only you see this)</label><input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} /></div>
@@ -158,7 +158,8 @@ export default function Automations() {
                   </select>
                 </div>
               )}
-              <div className="field"><label>HTML</label><textarea rows="8" value={s.html} onChange={(e) => setStep(i, { html: e.target.value })} /></div>
+              <label>Content</label>
+              <EditorField key={`${i}-${s.kv}`} value={s} onChange={(v) => setStep(i, { html: v.html, design: v.design })} templates={templates} />
               <Btn className="btn ghost sm" busyText="Sending test..." onClick={sendTest(s)}>Send test to me</Btn>
             </div>
           ))}
@@ -167,7 +168,7 @@ export default function Automations() {
           <label className="check"><input type="checkbox" checked={draft.active} onChange={(e) => setDraft({ ...draft, active: e.target.checked })} /> Turn on</label>
           <div className="row">
             <Btn busyText="Saving..." onClick={save}>{editing ? 'Save changes' : 'Create automation'}</Btn>
-            {(editing || draft.steps.some((s) => s.html !== WELCOME && s.html)) && <button className="btn ghost" onClick={reset}>{editing ? 'Cancel' : 'Clear'}</button>}
+            {editing && <button className="btn ghost" onClick={reset}>Cancel</button>}
           </div>
         </div>
 
