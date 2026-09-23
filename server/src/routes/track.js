@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { one, query } from '../db.js';
 import { safeEqual } from '../config.js';
 import { linkSig } from '../render.js';
+import { classifyUa } from '../ua.js';
 
 const router = Router();
 const PIXEL = Buffer.from(
@@ -14,9 +15,10 @@ const findMessage = async (token) => (TOKEN_RE.test(token) ? one(`SELECT * FROM 
 
 router.get('/o/:token', async (req, res) => {
   const message = await findMessage(req.params.token.replace(/\.png$/, ''));
-  if (message) {
+  const ua = classifyUa(req.headers['user-agent']);
+  if (message && ua.device !== 'bot') {
     await query(`UPDATE messages SET open_count = open_count + 1, opened_at = COALESCE(opened_at, now()) WHERE id = $1`, [message.id]);
-    await query(`INSERT INTO events (workspace_id, message_id, type) VALUES ($1, $2, 'open')`, [message.workspace_id, message.id]);
+    await query(`INSERT INTO events (workspace_id, message_id, type, meta) VALUES ($1, $2, 'open', $3::jsonb)`, [message.workspace_id, message.id, JSON.stringify({ device: ua.device, proxy: ua.proxy })]);
   }
   res.set({ 'Content-Type': 'image/png', 'Cache-Control': 'no-store' }).send(PIXEL);
 });
@@ -30,9 +32,13 @@ router.get('/c/:token', async (req, res) => {
   if (!safeEqual(sig, linkSig(req.params.token, url))) return res.status(400).send('bad link');
 
   const message = await findMessage(req.params.token);
-  if (message) {
+  const ua = classifyUa(req.headers['user-agent']);
+  // Security scanners open every link the moment an email arrives. A click within five seconds of
+  // sending is not a person, so it is not counted. The visitor is still sent on to the page.
+  const tooFast = message?.sent_at && Date.now() - new Date(message.sent_at).getTime() < 5000;
+  if (message && ua.device !== 'bot' && !tooFast) {
     await query(`UPDATE messages SET click_count = click_count + 1, clicked_at = COALESCE(clicked_at, now()) WHERE id = $1`, [message.id]);
-    await query(`INSERT INTO events (workspace_id, message_id, type, url) VALUES ($1, $2, 'click', $3)`, [message.workspace_id, message.id, url]);
+    await query(`INSERT INTO events (workspace_id, message_id, type, url, meta) VALUES ($1, $2, 'click', $3, $4::jsonb)`, [message.workspace_id, message.id, url, JSON.stringify({ device: ua.device })]);
   }
   res.redirect(302, url);
 });

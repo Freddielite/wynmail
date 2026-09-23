@@ -1,22 +1,23 @@
 import { many, one, query } from './db.js';
 import { enroll } from './automations.js';
-import { normEmail, cleanName, cleanAttrs } from './validate.js';
+import { normEmail, cleanName, cleanAttrs, cleanTags } from './validate.js';
 
 // Existing unsubscribed contacts stay unsubscribed. Only names and attributes are updated.
 export async function upsertContact(workspaceId, body, listId, opts = {}) {
   const attrs = cleanAttrs(body.attributes);
   const contact = await one(
-    `INSERT INTO contacts (workspace_id, email, first_name, last_name, attributes, consent_source, consent_at, status)
-     VALUES ($1, $2, $3, $4, COALESCE($5::jsonb, '{}'::jsonb), $6, now(),
+    `INSERT INTO contacts (workspace_id, email, first_name, last_name, attributes, consent_source, consent_at, tags, status)
+     VALUES ($1, $2, $3, $4, COALESCE($5::jsonb, '{}'::jsonb), $6, now(), $7::text[],
        COALESCE((SELECT CASE s.reason WHEN 'complained' THEN 'complained' ELSE 'bounced' END
                  FROM suppressions s WHERE s.workspace_id = $1 AND s.email = $2), 'subscribed'))
      ON CONFLICT (workspace_id, email) DO UPDATE SET
        first_name = COALESCE(EXCLUDED.first_name, contacts.first_name),
        last_name = COALESCE(EXCLUDED.last_name, contacts.last_name),
-       attributes = contacts.attributes || EXCLUDED.attributes
+       attributes = contacts.attributes || EXCLUDED.attributes,
+       tags = ARRAY(SELECT DISTINCT unnest(contacts.tags || EXCLUDED.tags))
      RETURNING *`,
     [workspaceId, normEmail(body.email), cleanName(body.first_name) || null, cleanName(body.last_name) || null,
-     attrs ? JSON.stringify(attrs) : null, body.consent_source || 'manual']
+     attrs ? JSON.stringify(attrs) : null, body.consent_source || 'manual', cleanTags(body.tags)]
   );
   if (listId) await attachLists(workspaceId, contact.id, [listId], opts);
   return contact;

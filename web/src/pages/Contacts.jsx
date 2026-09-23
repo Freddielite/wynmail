@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useSearchParams, Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { Btn, useGuard, when } from '../ui.jsx';
 
@@ -6,6 +7,9 @@ const statusClass = { subscribed: 'green', unsubscribed: 'amber', bounced: 'red'
 
 export default function Contacts() {
   const guard = useGuard();
+  const [params] = useSearchParams();
+  const [segments, setSegments] = useState([]);
+  const segmentId = params.get('segment') || '';
   const [lists, setLists] = useState([]);
   const [contacts, setContacts] = useState([]);
   const [blocked, setBlocked] = useState([]);
@@ -20,12 +24,12 @@ export default function Contacts() {
   const [single, setSingle] = useState({ email: '', first_name: '', last_name: '' });
 
   const load = async () => {
-    const q = [listId && `listId=${listId}`, statusFilter && `status=${statusFilter}`, search && `q=${encodeURIComponent(search)}`].filter(Boolean).join('&');
-    const [l, c, b] = await Promise.all([api.lists(), api.contacts(q ? `?${q}` : ''), api.suppressions()]);
-    setLists(l); setContacts(c); setBlocked(b);
+    const q = [listId && `listId=${listId}`, statusFilter && `status=${statusFilter}`, segmentId && `segmentId=${segmentId}`, search && `q=${encodeURIComponent(search)}`].filter(Boolean).join('&');
+    const [l, sg, c, b] = await Promise.all([api.lists(), api.segments(), api.contacts(q ? `?${q}` : ''), api.suppressions()]);
+    setLists(l); setSegments(sg); setContacts(c); setBlocked(b);
   };
 
-  useEffect(() => { guard(load)(); setTarget(listId); }, [listId, statusFilter]);
+  useEffect(() => { guard(load)(); setTarget(listId); }, [listId, statusFilter, segmentId]);
   useEffect(() => { api.members().then((m) => setCanManage(m.can_manage)).catch(() => {}); }, []);
 
   const targetName = lists.find((l) => String(l.id) === String(target))?.name;
@@ -157,6 +161,7 @@ export default function Contacts() {
               </div>
             </div>
             <div className="row" style={{ marginBottom: 12 }}>
+              {segmentId && <span className="pill">Segment: {segments.find((s) => String(s.id) === segmentId)?.name || segmentId}</span>}
               <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ maxWidth: 220 }}>
                 <option value="">Any status</option>
                 <option value="subscribed">Subscribed</option>
@@ -172,7 +177,7 @@ export default function Contacts() {
                 <tbody>
                   {contacts.map((c) => (
                     <tr key={c.id}>
-                      <td data-label="Email">{c.email}</td>
+                      <td data-label="Email"><Link to={`/contacts/${c.id}`}>{c.email}</Link></td>
                       <td data-label="Name">{[c.first_name, c.last_name].filter(Boolean).join(' ') || '-'}</td>
                       <td data-label="Status"><span className={`pill ${statusClass[c.status] || 'gray'}`}>{c.status}</span></td>
                       <td className="actions">

@@ -10,6 +10,9 @@ import Settings from './pages/Settings.jsx';
 import Clients from './pages/Clients.jsx';
 import Api from './pages/Api.jsx';
 import Team from './pages/Team.jsx';
+import Analytics from './pages/Analytics.jsx';
+import Segments from './pages/Segments.jsx';
+import ContactProfile from './pages/ContactProfile.jsx';
 import Forms from './pages/Forms.jsx';
 import Automations from './pages/Automations.jsx';
 
@@ -56,6 +59,8 @@ function Shell({ user, workspaces, onLogout }) {
           <NavLink to="/forms">Forms</NavLink>
           <NavLink to="/templates">Templates</NavLink>
           <NavLink to="/campaigns">Campaigns</NavLink>
+          <NavLink to="/analytics">Analytics</NavLink>
+          <NavLink to="/segments">Segments</NavLink>
           <NavLink to="/automations">Automations</NavLink>
           <NavLink to="/api">API</NavLink>
           <NavLink to="/team">Team</NavLink>
@@ -85,6 +90,9 @@ function Shell({ user, workspaces, onLogout }) {
           <Route path="/forms" element={<Forms />} />
           <Route path="/templates" element={<Templates />} />
           <Route path="/campaigns" element={<Campaigns />} />
+          <Route path="/analytics" element={<Analytics />} />
+          <Route path="/segments" element={<Segments />} />
+          <Route path="/contacts/:id" element={<ContactProfile />} />
           <Route path="/automations" element={<Automations />} />
           <Route path="/api" element={<Api />} />
           <Route path="/team" element={<Team />} />

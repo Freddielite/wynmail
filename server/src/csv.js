@@ -47,7 +47,8 @@ export function parseCsv(input) {
 const ALIASES = {
   email: ['email', 'e-mail', 'email address', 'emailaddress', 'e_mail'],
   first_name: ['first_name', 'firstname', 'first name', 'first', 'given name', 'given_name'],
-  last_name: ['last_name', 'lastname', 'last name', 'last', 'surname', 'family name', 'family_name']
+  last_name: ['last_name', 'lastname', 'last name', 'last', 'surname', 'family name', 'family_name'],
+  tags: ['tags', 'tag', 'labels']
 };
 
 // Turns parsed rows into contact objects plus a list of problems, without touching the database.
@@ -59,6 +60,7 @@ export function readContacts(rows, { maxRows = 5000, isEmail, normEmail } = {}) 
   if (iEmail < 0) return { error: 'The header row needs an "email" column.' };
   const iFirst = find(ALIASES.first_name);
   const iLast = find(ALIASES.last_name);
+  const iTags = find(ALIASES.tags);
   const body = rows.slice(1);
   if (body.length > maxRows) return { error: `Import at most ${maxRows} rows at a time.` };
 
@@ -78,11 +80,12 @@ export function readContacts(rows, { maxRows = 5000, isEmail, normEmail } = {}) 
     seen.add(email);
     const attributes = {};
     header.forEach((h, j) => {
-      if (j === iEmail || j === iFirst || j === iLast || !cells[j]) return;
+      if (j === iEmail || j === iFirst || j === iLast || j === iTags || !cells[j]) return;
       const key = h.replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
       if (key) attributes[key] = cells[j];
     });
-    contacts.push({ email, first_name: cells[iFirst] || '', last_name: cells[iLast] || '', attributes });
+    contacts.push({ email, first_name: cells[iFirst] || '', last_name: cells[iLast] || '', attributes,
+      tags: iTags >= 0 && cells[iTags] ? cells[iTags].split(/[;|,]/).map((t) => t.trim()).filter(Boolean) : [] });
   });
   return { contacts, skipped, duplicates, errors };
 }

@@ -35,3 +35,14 @@ export function readDesign(d) {
   if (json.length > 300000) return { error: 'This email design is too large' };
   return { set: true, value: json };
 }
+
+export function cleanTags(t) {
+  if (!Array.isArray(t)) return [];
+  const out = [];
+  for (const x of t) {
+    const s = String(x ?? '').replace(/[<>"\r\n,;|]/g, '').trim().toLowerCase().slice(0, 30);
+    if (s && !out.includes(s)) out.push(s);
+    if (out.length >= 20) break;
+  }
+  return out;
+}

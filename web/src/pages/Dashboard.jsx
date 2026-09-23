@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api.js';
+import { Link } from 'react-router-dom';
 import { useGuard, usePolling } from '../ui.jsx';
 
 const rate = (part, whole) => (whole ? `${Math.round((part / whole) * 100)}%` : '0%');
@@ -34,6 +35,7 @@ export default function Dashboard({ workspace }) {
         </div>
       </div>
 
+      <div className="between" style={{ margin: '4px 0 14px' }}><Link to="/analytics" className="btn ghost sm" style={{ textDecoration: 'none' }}>Full analytics</Link></div>
       <div className="grid stats">
         {cards.map((c) => (
           <div className="stat" key={c.l}>

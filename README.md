@@ -69,7 +69,7 @@ Create a key on the API page in the app (shown once, revocable, several per work
 
 Limits: 120 requests a minute per key. API emails count toward the workspace daily limit and need an approved sending domain. All provider calls share one throttle (`SEND_GAP_MS`, default 500) so the provider's rate limit is respected.
 
-Tests inside `server`: `npm run test:csv` needs nothing. `test:security`, `test:api`, `test:batch`, `test:forms`, `test:automations`, `test:quickwins` and `test:designs` each run against a fresh empty database with `FORCE_PROVIDER=console`. `test:automations` also needs `AUTOMATION_MINUTE_MS=1000` on the server. `test:builder` and `test:domain` need nothing. `test:quickwins`, `test:batch` and `test:forms` also need `RESEND_WEBHOOK_SECRET` set on the server and `LOG` pointing at the server log file.
+Tests inside `server`: `npm run test:csv` needs nothing. `test:security`, `test:api`, `test:batch`, `test:forms`, `test:automations`, `test:quickwins`, `test:designs`, `test:media`, `test:analytics` and `test:segments` each run against a fresh empty database with `FORCE_PROVIDER=console`. `test:automations` also needs `AUTOMATION_MINUTE_MS=1000` on the server. `test:builder`, `test:csv` and `test:domain` need nothing. `test:analytics` needs `JWT_SECRET` set (it signs tracked links the same way the server does). `test:quickwins`, `test:batch` and `test:forms` also need `RESEND_WEBHOOK_SECRET` set on the server and `LOG` pointing at the server log file.
 
 ## Email builder
 
@@ -114,6 +114,28 @@ The Forms page creates public signup forms that feed a list. Each form has a hos
 - Abuse protection: a hidden honeypot field, a signed timing token, per-IP and per-address rate limits, and the same success answer whether or not the address is already known.
 - Confirmation emails send from the workspace's approved sender and count toward the daily limit. Failed confirmation emails show their reason in the Signups panel.
 - Embeds need an https or http page. Browsers do not treat `file://` or `about:blank` pages as valid embedders.
+
+## Pictures
+
+Every workspace has its own picture library, uploaded straight into the database (no external storage needed). PNG, JPEG, GIF and WEBP only, up to 3 MB each and 100 MB total per workspace. Files are checked by their actual bytes, not just the label, and SVG is refused since it can carry scripts. Pictures are served from `/m/<token>` with a far-future cache header. Deleting a picture that is used in a saved template, campaign or automation email warns first, since it would break the picture there and in any copy of the email already sent.
+
+The email builder's Image block opens this library, or you can still paste a picture's own web address.
+
+## Analytics
+
+The Analytics page shows sent, open rate, click rate, bounce rate and unsubscribe rate for a chosen period, a daily chart, a heatmap of when people open by day and hour (in the reader's own time zone), and a table comparing recent campaigns.
+
+Each campaign's Report has its own analytics: a funnel from sent to delivered to opened to clicked, an hourly timeline, which links got clicked and by how many people, and a breakdown by device (phone, computer, tablet). Bots and security scanners are filtered out: link scanners that open every email the moment it arrives do not count as opens, and a click within 5 seconds of sending does not count as a click, though the visitor is still sent on to the page either way.
+
+## Segments and contact profiles
+
+Segments are saved rules that are worked out fresh every time they are used, so they never go stale. Rules can match on status, list membership, tags, name, email, custom fields, when they joined, and behavior (opened or clicked in the last N days, never opened, or received, opened, clicked or didn't open a specific campaign). Match all or any of up to 10 rules. A live count updates as you build one.
+
+A campaign can send to a list or a segment. When it sends, the segment is worked out again at that moment, so it always reflects who matches right then, and only subscribed contacts ever receive it.
+
+Every contact has a profile page (click their email from Contacts): details, tags and custom fields you can edit, which lists they are on, their full email history with outcomes, their signup and automation history, and their consent record (source, time, the exact sentence they agreed to, and the IP address, when known).
+
+Tags are plain words on a contact, settable by hand, through CSV import (a `tags` column, split on `;` or `|`), or through the API.
 
 ## Bounces and spam complaints
 

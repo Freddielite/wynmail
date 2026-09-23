@@ -64,3 +64,9 @@
 62. `feat(web): use the visual builder in templates, campaigns and automation emails, with an HTML tab as an alternative`
 63. `feat(email): place the unsubscribe footer inside designed emails with a footer token`
 64. `test: add builder, design storage and browser suites for the email builder`
+65. `feat(media): add a per-workspace picture library stored in the database, with type sniffing, size limits and a public /m/ route`
+66. `feat(builder): let the Image block pick from the picture library or upload a new one`
+67. `feat(analytics): add campaign and workspace analytics with a daily chart, open-time heatmap, link and device breakdowns, and bot filtering`
+68. `feat(segments): add saved audience segments with a rule builder, live preview, and campaigns that can target a segment`
+69. `feat(contacts): add a contact profile page with editable tags and custom fields, full email history, consent record, and CSV/API tag support`
+70. `test: add media, analytics and segments test suites`

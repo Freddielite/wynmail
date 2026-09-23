@@ -17,7 +17,7 @@ async function request(path, { method = 'GET', body } = {}) {
     body: body ? JSON.stringify(body) : undefined
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `request failed (${res.status})`);
+  if (!res.ok) { const err = new Error(data.error || `request failed (${res.status})`); err.status = res.status; err.data = data; throw err; }
   return data;
 }
 
@@ -32,6 +32,17 @@ async function download(path, filename) {
   a.href = url; a.download = filename;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+const tz = () => -new Date().getTimezoneOffset(); // minutes ahead of UTC, so charts use the reader's own day
+
+async function uploadMedia(blob, name) {
+  const res = await fetch(`${BASE}${ws('/media')}`, {
+    method: 'POST', headers: { 'Content-Type': blob.type, 'X-Filename': encodeURIComponent(name), Authorization: `Bearer ${store.token}` }, body: blob
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Upload failed');
+  return data;
 }
 
 export const api = {
@@ -95,6 +106,22 @@ export const api = {
   domainCheck: () => request(ws('/domain-check')),
   exportContacts: () => download(ws('/contacts/export'), 'contacts.csv'),
   exportCampaign: (id) => download(ws(`/campaigns/${id}/export`), `campaign-${id}-report.csv`),
+
+  media: () => request(ws('/media')),
+  uploadMedia,
+  deleteMedia: (id, force) => request(ws(`/media/${id}${force ? '?force=1' : ''}`), { method: 'DELETE' }),
+  analyticsOverview: (days) => request(ws(`/analytics/overview?days=${days}&tz=${tz()}`)),
+  campaignAnalytics: (id) => request(ws(`/analytics/campaigns/${id}?tz=${tz()}`)),
+  segments: () => request(ws('/segments')),
+  segment: (id) => request(ws(`/segments/${id}`)),
+  previewSegment: (definition) => request(ws('/segments/preview'), { method: 'POST', body: { definition } }),
+  createSegment: (b) => request(ws('/segments'), { method: 'POST', body: b }),
+  updateSegment: (id, b) => request(ws(`/segments/${id}`), { method: 'PUT', body: b }),
+  deleteSegment: (id) => request(ws(`/segments/${id}`), { method: 'DELETE' }),
+  profile: (id) => request(ws(`/profile/${id}`)),
+  updateProfile: (id, b) => request(ws(`/profile/${id}`), { method: 'PUT', body: b }),
+  addToList: (id, listId) => request(ws(`/profile/${id}/lists`), { method: 'POST', body: { list_id: listId } }),
+  removeFromList: (id, listId) => request(ws(`/profile/${id}/lists/${listId}`), { method: 'DELETE' }),
 
   campaigns: () => request(ws('/campaigns')),
   createCampaign: (b) => request(ws('/campaigns'), { method: 'POST', body: b }),

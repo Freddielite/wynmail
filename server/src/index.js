@@ -11,6 +11,7 @@ import trackRoutes from './routes/track.js';
 import v1Routes from './routes/v1.js';
 import webhookRoutes from './routes/webhooks.js';
 import formRoutes from './routes/forms.js';
+import { publicMedia } from './routes/media.js';
 import { startWorker } from './queue.js';
 
 const app = express();
@@ -26,6 +27,7 @@ const apiCors = cors({ origin: origins });
 app.get('/health', (_req, res) => res.json({ ok: true, service: 'wynmail' }));
 app.use('/t', trackRoutes);
 app.use(formRoutes);
+app.use(publicMedia);
 app.use('/v1', v1Routes);
 app.use('/api', apiCors);
 app.use('/api/auth', authRoutes);
@@ -34,6 +36,7 @@ app.use('/api/workspaces/:workspaceId', requireAuth, requireWorkspace, workspace
 
 app.use((err, _req, res, _next) => {
   if (err.code === '22P02') return res.status(400).json({ error: 'bad request' });
+  if (err.type === 'entity.too.large') return res.status(413).json({ error: 'That upload is too large. Pictures can be up to 3 MB.' });
   if (err.status && err.status < 500) return res.status(err.status).json({ error: 'bad request' });
   console.error(err);
   res.status(500).json({ error: 'server error' });

@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { BLOCK_LABELS, FONT_LABELS, safeUrl } from './render.js';
+import MediaPicker from './MediaPicker.jsx';
 
 const Row = ({ label, children }) => <div className="field"><label>{label}</label>{children}</div>;
 
@@ -46,6 +48,7 @@ function MergeInsert({ onInsert }) {
 const SHAPES = [['Square', 0], ['Rounded', 8], ['Pill', 999]];
 
 function Fields({ block, set }) {
+  const [picker, setPicker] = useState(false);
   const p = block.props;
   switch (block.type) {
     case 'heading':
@@ -66,16 +69,20 @@ function Fields({ block, set }) {
         <Row label="Alignment"><Align value={p.align} onChange={(align) => set({ align })} /></Row>
         <Row label="Color"><Color value={p.color} none onChange={(color) => set({ color })} /></Row>
       </>);
-    case 'image':
+    case 'image': {
       return (<>
-        <Row label="Picture web address"><input value={p.src} placeholder="https://example.com/photo.jpg" onChange={(e) => set({ src: e.target.value })} />
-          <div className="muted">Paste the address of a picture already online. Uploading pictures comes later.</div></Row>
+        <Row label="Picture">
+          <div className="row"><button type="button" className="btn ghost sm" onClick={() => setPicker(true)}>Choose or upload</button>{p.src && <span className="muted">Picture set</span>}</div>
+          {picker && <MediaPicker onPick={(url) => { set({ src: url }); setPicker(false); }} onClose={() => setPicker(false)} />}
+          <input style={{ marginTop: 8 }} value={p.src} placeholder="Or paste a picture web address" onChange={(e) => set({ src: e.target.value })} />
+        </Row>
         <Row label="Description for screen readers"><input value={p.alt} onChange={(e) => set({ alt: e.target.value })} /></Row>
         <Row label="Click goes to (optional)"><input value={p.link} placeholder="https://" onChange={(e) => set({ link: e.target.value })} /></Row>
         <Row label="Width"><Slider value={p.width} min={20} max={100} unit="%" onChange={(width) => set({ width })} /></Row>
         <Row label="Alignment"><Align value={p.align} onChange={(align) => set({ align })} /></Row>
         <Row label="Rounded corners"><Slider value={p.radius} min={0} max={40} onChange={(radius) => set({ radius })} /></Row>
       </>);
+    }
     case 'button':
       return (<>
         <Row label="Button text"><input value={p.label} onChange={(e) => set({ label: e.target.value })} /></Row>
@@ -147,7 +154,7 @@ export default function Inspector({ block, settings, setSettings, set, onDuplica
           <button type="button" className="btn ghost sm" onClick={onDeselect}>Done</button>
         </div>
       </div>
-      <Fields block={block} set={set} />
+      <Fields key={block.id} block={block} set={set} />
       {!locked && block.type !== 'spacer' && (
         <details className="spacing">
           <summary>Spacing and background</summary>

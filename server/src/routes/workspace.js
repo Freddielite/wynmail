@@ -18,6 +18,11 @@ import { checkDomain } from '../dnscheck.js';
 import { createResetToken, resetLink } from '../resets.js';
 import { sendSystemEmail, actionEmail } from '../sysmail.js';
 import formsAdmin from './formsAdmin.js';
+import segmentsAdmin from './segmentsAdmin.js';
+import profileRoutes from './profile.js';
+import mediaAdmin from './media.js';
+import analyticsRoutes from './analytics.js';
+import { compileSegment } from '../segments.js';
 import automationsAdmin from './automationsAdmin.js';
 import { isEmail, normEmail, DOMAIN_RE, TRACKING_RE, cleanName, cleanText, cleanAttrs, senderAllowed, readDesign } from '../validate.js';
 
@@ -30,6 +35,7 @@ const MAX_IMPORT_ROWS = 5000;
 router.param('id', (_req, res, next, v) => (/^\d{1,9}$/.test(v) ? next() : bad(res, 'bad id')));
 
 const isAdmin = async (uid) => !!(await one(`SELECT is_admin FROM users WHERE id = $1`, [uid]))?.is_admin;
+const ownsSegment = async (workspaceId, id) => !!(await one(`SELECT 1 FROM segments WHERE id = $1 AND workspace_id = $2`, [id, workspaceId]));
 const ownsList = async (workspaceId, listId) =>
   !!(await one(`SELECT 1 FROM lists WHERE id = $1 AND workspace_id = $2`, [listId, workspaceId]));
 
@@ -134,19 +140,19 @@ router.delete('/lists/:id', async (req, res) => {
 
 /* ---------- contacts ---------- */
 router.get('/contacts', async (req, res) => {
+  const params = [ws(req)];
+  const where = ['c.workspace_id = $1'];
   const listId = /^\d{1,9}$/.test(String(req.query.listId || '')) ? Number(req.query.listId) : null;
-  const q = typeof req.query.q === 'string' && req.query.q ? req.query.q.slice(0, 100) : null;
-  const status = ['subscribed', 'unsubscribed', 'bounced', 'complained'].includes(req.query.status) ? req.query.status : null;
-  res.json(await many(
-    `SELECT DISTINCT c.* FROM contacts c
-     LEFT JOIN list_contacts lc ON lc.contact_id = c.id
-     WHERE c.workspace_id = $1
-       AND ($2::int IS NULL OR lc.list_id = $2::int)
-       AND ($3::text IS NULL OR c.email ILIKE '%' || $3 || '%')
-       AND ($4::text IS NULL OR c.status = $4)
-     ORDER BY c.id DESC LIMIT 500`,
-    [ws(req), listId, q, status]
-  ));
+  if (listId) { params.push(listId); where.push(`EXISTS (SELECT 1 FROM list_contacts lc WHERE lc.contact_id = c.id AND lc.list_id = $${params.length})`); }
+  if (typeof req.query.q === 'string' && req.query.q) { params.push(req.query.q.slice(0, 100)); where.push(`c.email ILIKE '%' || $${params.length} || '%'`); }
+  if (['subscribed', 'unsubscribed', 'bounced', 'complained'].includes(req.query.status)) { params.push(req.query.status); where.push(`c.status = $${params.length}`); }
+  if (typeof req.query.tag === 'string' && req.query.tag.trim()) { params.push(req.query.tag.trim().toLowerCase().slice(0, 30)); where.push(`$${params.length} = ANY(c.tags)`); }
+  if (/^\d{1,9}$/.test(String(req.query.segmentId || ''))) {
+    const seg = await one(`SELECT definition FROM segments WHERE id = $1 AND workspace_id = $2`, [Number(req.query.segmentId), ws(req)]);
+    if (!seg) return res.status(404).json({ error: 'segment not found' });
+    where.push(compileSegment(seg.definition, params));
+  }
+  res.json(await many(`SELECT c.* FROM contacts c WHERE ${where.join(' AND ')} ORDER BY c.id DESC LIMIT 500`, params));
 });
 
 router.post('/contacts', async (req, res) => {
@@ -218,7 +224,7 @@ router.delete('/templates/:id', async (req, res) => {
 /* ---------- campaigns ---------- */
 router.get('/campaigns', async (req, res) => {
   res.json(await many(
-    `SELECT c.*, l.name AS list_name,
+    `SELECT c.*, l.name AS list_name, sg.name AS segment_name,
        (SELECT count(*)::int FROM messages m WHERE m.campaign_id = c.id) AS total,
        (SELECT count(*)::int FROM messages m WHERE m.campaign_id = c.id AND m.status = 'sent') AS sent,
        (SELECT count(*)::int FROM messages m WHERE m.campaign_id = c.id AND m.opened_at IS NOT NULL) AS opened,
@@ -226,43 +232,51 @@ router.get('/campaigns', async (req, res) => {
        (SELECT count(*)::int FROM messages m WHERE m.campaign_id = c.id AND m.bounced_at IS NOT NULL) AS bounced,
        (SELECT count(*)::int FROM messages m WHERE m.campaign_id = c.id AND m.complained_at IS NOT NULL) AS complained,
        (SELECT count(*)::int FROM messages m WHERE m.campaign_id = c.id AND m.delivered_at IS NOT NULL) AS delivered
-     FROM campaigns c LEFT JOIN lists l ON l.id = c.list_id
+     FROM campaigns c LEFT JOIN lists l ON l.id = c.list_id LEFT JOIN segments sg ON sg.id = c.segment_id
      WHERE c.workspace_id = $1 ORDER BY c.id DESC`, [ws(req)]));
 });
 
 router.post('/campaigns', async (req, res) => {
-  const { name, subject, html, list_id, scheduled_at, preview_text } = req.body || {};
+  const { name, subject, html, list_id, segment_id, scheduled_at, preview_text } = req.body || {};
   const subj = cleanText(subject, 300);
-  if (!subj || !list_id) return bad(res, 'subject and list_id required');
-  if (!(await ownsList(ws(req), Number(list_id)))) return bad(res, 'unknown list');
+  const seg = segment_id ? Number(segment_id) : null;
+  const lst = !seg && list_id ? Number(list_id) : null; // a segment replaces the list
+  if (!subj || (!lst && !seg)) return bad(res, 'subject and a list or segment are required');
+  if (lst && !(await ownsList(ws(req), lst))) return bad(res, 'unknown list');
+  if (seg && !(await ownsSegment(ws(req), seg))) return bad(res, 'unknown segment');
   const when = scheduled_at ? new Date(scheduled_at) : null;
   if (when && Number.isNaN(when.getTime())) return bad(res, 'invalid schedule time');
   const dz = readDesign(req.body?.design);
   if (dz.error) return bad(res, dz.error);
   res.json(await one(
-    `INSERT INTO campaigns (workspace_id, name, subject, html, list_id, scheduled_at, status, preview_text, design)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb) RETURNING *`,
-    [ws(req), cleanName(name) || subj, subj, String(html || '').slice(0, MAX_HTML), Number(list_id), when, when ? 'scheduled' : 'draft', cleanText(preview_text, 150), dz.value]
+    `INSERT INTO campaigns (workspace_id, name, subject, html, list_id, scheduled_at, status, preview_text, design, segment_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10) RETURNING *`,
+    [ws(req), cleanName(name) || subj, subj, String(html || '').slice(0, MAX_HTML), lst, when, when ? 'scheduled' : 'draft', cleanText(preview_text, 150), dz.value, seg]
   ));
 });
 
 router.put('/campaigns/:id', async (req, res) => {
-  const { name, subject, html, list_id, scheduled_at, preview_text } = req.body || {};
-  if (list_id && !(await ownsList(ws(req), Number(list_id)))) return bad(res, 'unknown list');
+  const { name, subject, html, list_id, segment_id, scheduled_at, preview_text } = req.body || {};
+  const audienceGiven = !!req.body && ('list_id' in req.body || 'segment_id' in req.body);
+  const seg = segment_id ? Number(segment_id) : null;
+  const lst = !seg && list_id ? Number(list_id) : null;
+  if (audienceGiven && !lst && !seg) return bad(res, 'Choose a list or segment');
+  if (lst && !(await ownsList(ws(req), lst))) return bad(res, 'unknown list');
+  if (seg && !(await ownsSegment(ws(req), seg))) return bad(res, 'unknown segment');
   const when = scheduled_at ? new Date(scheduled_at) : null;
   if (when && Number.isNaN(when.getTime())) return bad(res, 'invalid schedule time');
   const dz = readDesign(req.body?.design);
   if (dz.error) return bad(res, dz.error);
   const row = await one(
     `UPDATE campaigns SET name = COALESCE($3, name), subject = COALESCE($4, subject),
-       html = COALESCE($5, html), list_id = COALESCE($6, list_id), scheduled_at = $7,
+       html = COALESCE($5, html), list_id = CASE WHEN $11::boolean THEN $6 ELSE list_id END, segment_id = CASE WHEN $11::boolean THEN $12 ELSE segment_id END, scheduled_at = $7,
        preview_text = COALESCE($8, preview_text),
        design = CASE WHEN $9::boolean THEN $10::jsonb ELSE design END,
        status = CASE WHEN $7::timestamptz IS NOT NULL THEN 'scheduled' ELSE 'draft' END
      WHERE id = $1 AND workspace_id = $2 AND status IN ('draft','scheduled') RETURNING *`,
     [req.params.id, ws(req), name === undefined ? null : cleanName(name),
      subject === undefined ? null : cleanText(subject, 300), html === undefined ? null : String(html).slice(0, MAX_HTML),
-     list_id ? Number(list_id) : null, when, preview_text === undefined ? null : cleanText(preview_text, 150), dz.set, dz.value]
+     lst, when, preview_text === undefined ? null : cleanText(preview_text, 150), dz.set, dz.value, audienceGiven, seg]
   );
   if (!row) return res.status(404).json({ error: 'not found or already sent' });
   res.json(row);
@@ -425,6 +439,10 @@ router.delete('/members/:userId', async (req, res) => {
 });
 
 router.use('/forms', formsAdmin);
+router.use('/segments', segmentsAdmin);
+router.use('/profile', profileRoutes);
+router.use('/media', mediaAdmin);
+router.use('/analytics', analyticsRoutes);
 router.use('/automations', automationsAdmin);
 
 /* ---------- blocked addresses ---------- */
@@ -507,8 +525,8 @@ router.post('/campaigns/:id/duplicate', async (req, res) => {
   const c = await one(`SELECT * FROM campaigns WHERE id = $1 AND workspace_id = $2`, [req.params.id, ws(req)]);
   if (!c) return res.status(404).json({ error: 'not found' });
   res.json(await one(
-    `INSERT INTO campaigns (workspace_id, name, subject, html, list_id, preview_text, status, design) VALUES ($1, $2, $3, $4, $5, $6, 'draft', $7::jsonb) RETURNING *`,
-    [ws(req), cleanName(`Copy of ${c.name}`, 100), c.subject, c.html, c.list_id, c.preview_text, c.design ? JSON.stringify(c.design) : null]));
+    `INSERT INTO campaigns (workspace_id, name, subject, html, list_id, preview_text, status, design, segment_id) VALUES ($1, $2, $3, $4, $5, $6, 'draft', $7::jsonb, $8) RETURNING *`,
+    [ws(req), cleanName(`Copy of ${c.name}`, 100), c.subject, c.html, c.list_id, c.preview_text, c.design ? JSON.stringify(c.design) : null, c.segment_id]));
 });
 
 /* ---------- domain check ---------- */

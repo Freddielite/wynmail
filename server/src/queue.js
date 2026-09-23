@@ -6,6 +6,7 @@ import { senderAllowed } from './validate.js';
 import { throttled } from './throttle.js';
 import { sentToday } from './usage.js';
 import { processDueRuns } from './automations.js';
+import { compileSegment } from './segments.js';
 
 const MAX_ATTEMPTS = 3;
 const TICK_MS = Number(process.env.QUEUE_TICK_MS || 5000);
@@ -30,7 +31,22 @@ export async function enqueueCampaign(campaignId) {
   if (!campaign) throw new Error('campaign not found or already sent');
 
   try {
-    const res = await one(
+    let res;
+    if (campaign.segment_id) {
+      // A segment is worked out now, at send time, so it always reflects who matches today.
+      const seg = await one(`SELECT definition FROM segments WHERE id = $1 AND workspace_id = $2`, [campaign.segment_id, campaign.workspace_id]);
+      if (!seg) throw new Error('the segment for this campaign no longer exists');
+      const params = [campaign.id, campaign.workspace_id];
+      const cond = compileSegment(seg.definition, params);
+      res = await one(
+        `WITH ins AS (
+           INSERT INTO messages (workspace_id, campaign_id, contact_id, email, token)
+           SELECT $2, $1, c.id, c.email, replace(gen_random_uuid()::text, '-', '')
+           FROM contacts c WHERE c.workspace_id = $2 AND c.status = 'subscribed' AND ${cond}
+           RETURNING 1
+         ) SELECT count(*)::int AS n FROM ins`, params);
+    } else {
+    res = await one(
       `WITH ins AS (
          INSERT INTO messages (workspace_id, campaign_id, contact_id, email, token)
          SELECT $2, $1, c.id, c.email, replace(gen_random_uuid()::text, '-', '')
@@ -42,7 +58,8 @@ export async function enqueueCampaign(campaignId) {
        ) SELECT count(*)::int AS n FROM ins`,
       [campaign.id, campaign.workspace_id, campaign.list_id]
     );
-    if (!res.n) throw new Error('this list has no subscribed contacts');
+    }
+    if (!res.n) throw new Error('there is no one subscribed to send this to');
     return res.n;
   } catch (err) {
     await query(`UPDATE campaigns SET status = 'draft', started_at = NULL WHERE id = $1`, [campaign.id]);

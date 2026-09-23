@@ -15,7 +15,10 @@
     "test:quickwins": "node test/quickwins.mjs",
     "test:domain": "node test/domain.mjs",
     "test:builder": "node test/builder.mjs",
-    "test:designs": "node test/designs.mjs"
+    "test:designs": "node test/designs.mjs",
+    "test:media": "node test/media.mjs",
+    "test:analytics": "node test/analytics.mjs",
+    "test:segments": "node test/segments.mjs"
   },
   "keywords": [],
   "author": "",

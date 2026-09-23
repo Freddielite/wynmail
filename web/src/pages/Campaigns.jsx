@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { Btn, useGuard, usePolling, when } from '../ui.jsx';
 import EditorField from '../builder/EditorField.jsx';
+import CampaignAnalytics from './CampaignAnalytics.jsx';
 
-const blank = { name: '', subject: '', preview_text: '', html: '', design: null, list_id: '', scheduled_at: '', template_id: '' };
+const blank = { name: '', subject: '', preview_text: '', html: '', design: null, audience: 'list', list_id: '', segment_id: '', scheduled_at: '', template_id: '' };
 const outcome = (m) => {
   if (m.complained_at) return { label: 'spam complaint', cls: 'red' };
   if (m.bounced_at) return { label: m.bounce_type === 'Permanent' ? 'bounced' : 'soft bounce', cls: m.bounce_type === 'Permanent' ? 'red' : 'amber' };
@@ -24,9 +25,10 @@ export default function Campaigns() {
   const [detail, setDetail] = useState(null);
   const [messages, setMessages] = useState([]);
 
+  const [segments, setSegments] = useState([]);
   const loadAll = async () => {
-    const [c, l, t] = await Promise.all([api.campaigns(), api.lists(), api.templates()]);
-    setCampaigns(c); setLists(l); setTemplates(t);
+    const [c, l, t, sg] = await Promise.all([api.campaigns(), api.lists(), api.templates(), api.segments()]);
+    setCampaigns(c); setLists(l); setTemplates(t); setSegments(sg);
   };
   const refresh = async () => {
     try {
@@ -43,7 +45,7 @@ export default function Campaigns() {
   usePolling(refresh, scheduled && !sending, 10000);
 
   const picked = lists.find((l) => String(l.id) === String(draft.list_id));
-  const skipped = picked ? picked.contact_count - picked.subscribed_count : 0;
+  const skipped = draft.audience === 'list' && picked ? picked.contact_count - picked.subscribed_count : 0;
   const set = (k) => (e) => setDraft({ ...draft, [k]: e.target.value });
   const reset = () => { setEditing(null); setDraft(blank); setPreview(''); setEditorKey((k) => k + 1); };
 
@@ -57,10 +59,11 @@ export default function Campaigns() {
 
   const persist = async (scheduleAt, asSend = false) => {
     if (!draft.subject.trim()) throw new Error('Add a subject first');
-    if (!draft.list_id) throw new Error('Choose a list first');
+    if (draft.audience === 'list' && !draft.list_id) throw new Error('Choose a list first');
+    if (draft.audience === 'segment' && !draft.segment_id) throw new Error('Choose a segment first');
     if (asSend && !draft.html.trim()) throw new Error('Add some content first, the email is empty');
     const body = { name: draft.name || draft.subject, subject: draft.subject, html: draft.html, design: draft.design, preview_text: draft.preview_text,
-      list_id: Number(draft.list_id), scheduled_at: scheduleAt };
+      list_id: draft.audience === 'list' ? Number(draft.list_id) : null, segment_id: draft.audience === 'segment' ? Number(draft.segment_id) : null, scheduled_at: scheduleAt };
     if (editing) { await api.updateCampaign(editing, body); return editing; }
     const created = await api.createCampaign(body);
     setEditing(created.id);
@@ -103,7 +106,7 @@ export default function Campaigns() {
 
   const edit = (c) => {
     setEditing(c.id);
-    setDraft({ name: c.name, subject: c.subject, preview_text: c.preview_text || '', html: c.html, design: c.design || null, list_id: c.list_id || '', scheduled_at: '', template_id: '' });
+    setDraft({ name: c.name, subject: c.subject, preview_text: c.preview_text || '', html: c.html, design: c.design || null, audience: c.segment_id ? 'segment' : 'list', list_id: c.list_id || '', segment_id: c.segment_id || '', scheduled_at: '', template_id: '' });
     setEditorKey((k) => k + 1);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -133,13 +136,26 @@ export default function Campaigns() {
             <div className="field"><label>Preview text (optional)</label><input placeholder="The short line inboxes show after the subject" maxLength={150} value={draft.preview_text} onChange={set('preview_text')} /></div>
           </div>
           <div>
+            <div className="row" style={{ marginBottom: 10 }}>
+              <button type="button" className={`btn sm ${draft.audience === 'list' ? '' : 'ghost'}`} onClick={() => setDraft({ ...draft, audience: 'list' })}>Send to a list</button>
+              <button type="button" className={`btn sm ${draft.audience === 'segment' ? '' : 'ghost'}`} onClick={() => setDraft({ ...draft, audience: 'segment' })}>Send to a segment</button>
+            </div>
             <div className="row" style={{ marginBottom: 14, alignItems: 'flex-start' }}>
               <div style={{ flex: 1 }}>
-                <label>List</label>
-                <select value={draft.list_id} onChange={set('list_id')}>
-                  <option value="">Choose a list</option>
-                  {lists.map((l) => <option key={l.id} value={l.id}>{l.name} ({l.subscribed_count} can receive)</option>)}
-                </select>
+                {draft.audience === 'list' ? (<>
+                  <label>List</label>
+                  <select value={draft.list_id} onChange={set('list_id')}>
+                    <option value="">Choose a list</option>
+                    {lists.map((l) => <option key={l.id} value={l.id}>{l.name} ({l.subscribed_count} can receive)</option>)}
+                  </select>
+                </>) : (<>
+                  <label>Segment</label>
+                  <select value={draft.segment_id} onChange={set('segment_id')}>
+                    <option value="">Choose a segment</option>
+                    {segments.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.subscribed} can receive)</option>)}
+                  </select>
+                  {!segments.length && <div className="muted" style={{ marginTop: 4 }}>No segments yet. Create one on the Segments page.</div>}
+                </>)}
               </div>
               <div style={{ flex: 1 }}>
                 <label>Start from template</label>
@@ -186,7 +202,7 @@ export default function Campaigns() {
               {campaigns.map((c) => (
                 <tr key={c.id}>
                   <td className="title"><strong>{c.name}</strong><div className="muted">{c.subject}</div></td>
-                  <td data-label="List">{c.list_name || '-'}</td>
+                  <td data-label="List">{c.list_name || (c.segment_name ? `Segment: ${c.segment_name}` : '-')}</td>
                   <td data-label="Status">
                     <span className={`pill ${pillClass[c.status] || 'gray'}${c.status === 'sending' ? ' live' : ''}`}>{c.status}</span>
                     {c.status === 'scheduled' && <div className="muted">{when(c.scheduled_at)}</div>}
@@ -227,6 +243,7 @@ export default function Campaigns() {
               <button className="btn ghost sm" onClick={() => setDetail(null)}>Close</button>
             </div>
           </div>
+          <CampaignAnalytics id={detail.id} />
           <div className="table-wrap" style={{ marginTop: 12 }}>
             <table className="stack">
               <thead><tr><th>Recipient</th><th>Status</th><th>Opens</th><th>Clicks</th><th>Error</th></tr></thead>
