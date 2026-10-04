@@ -4,7 +4,7 @@ import { Btn, CodeBlock, CopyBtn, useGuard, usePolling, when } from '../ui.jsx';
 
 const ENDPOINTS = [
   ['POST', '/v1/emails', 'Send one email to one person'],
-  ['POST', '/v1/contacts', 'Add or update a contact, optionally into a list'],
+  ['POST', '/v1/contacts', 'Add or update a contact, optionally into a list. Typos, disposable and dead addresses are refused with a code'],
   ['GET', '/v1/contacts/{email}', 'Look up a contact and their status'],
   ['POST', '/v1/contacts/{email}/unsubscribe', 'Unsubscribe a contact'],
   ['GET', '/v1/lists', 'List your lists and their sizes'],

@@ -9,7 +9,7 @@ const bad = (res, msg) => res.status(400).json({ error: msg });
 const okId = (v) => /^\d{1,9}$/.test(String(v));
 
 const load = (req) => one(
-  `SELECT id, email, first_name, last_name, status, attributes, tags, consent_source, consent_at, consent_text, consent_ip, created_at, unsubscribed_at
+  `SELECT id, email, first_name, last_name, status, attributes, tags, consent_source, consent_at, consent_text, consent_ip, created_at, unsubscribed_at, paused_until, max_per_week
    FROM contacts WHERE id = $1 AND workspace_id = $2`, [Number(req.params.id), wid(req)]);
 
 router.get('/:id', async (req, res) => {
@@ -31,7 +31,8 @@ router.get('/:id', async (req, res) => {
      FROM automation_runs r JOIN automations a ON a.id = r.automation_id WHERE r.contact_id = $1 AND a.workspace_id = $2 ORDER BY r.id DESC`, [contact.id, wid(req)]);
 
   const stats = { received: emails.filter((e) => e.status === 'sent').length, opened: emails.filter((e) => e.opened_at).length, clicked: emails.filter((e) => e.clicked_at).length };
-  res.json({ contact, lists, emails, signups, automations, stats });
+  const left = await many(`SELECT l.id, l.name FROM list_optouts o JOIN lists l ON l.id = o.list_id WHERE o.contact_id = $1 AND l.workspace_id = $2 ORDER BY l.name`, [contact.id, wid(req)]);
+  res.json({ contact, lists, left, emails, signups, automations, stats });
 });
 
 router.put('/:id', async (req, res) => {
@@ -52,8 +53,8 @@ router.post('/:id/lists', async (req, res) => {
   if (!okId(req.params.id) || !okId(req.body?.list_id)) return bad(res, 'bad id');
   if (!(await load(req))) return res.status(404).json({ error: 'not found' });
   if (!(await one(`SELECT 1 FROM lists WHERE id = $1 AND workspace_id = $2`, [Number(req.body.list_id), wid(req)]))) return bad(res, 'unknown list');
-  await attachLists(wid(req), Number(req.params.id), [Number(req.body.list_id)], { source: 'manual' });
-  res.json({ ok: true });
+  const r = await attachLists(wid(req), Number(req.params.id), [Number(req.body.list_id)], { source: 'manual' });
+  res.json({ ok: true, blocked: r.blocked });
 });
 
 router.delete('/:id/lists/:listId', async (req, res) => {

@@ -24,12 +24,21 @@ export async function upsertContact(workspaceId, body, listId, opts = {}) {
 }
 
 // Only lists that belong to the workspace are attached. Newly added memberships start automations.
+// Someone who left a list on their preference page is not added back by imports, the API or hand.
+// Only their own confirmed signup (source "form") or their own preference page (source "prefs") brings them back.
 export async function attachLists(workspaceId, contactId, listIds, { source = 'manual' } = {}) {
-  if (!listIds.length) return;
+  if (!listIds.length) return { blocked: 0 };
+  if (source === 'form' || source === 'prefs') {
+    await query(`DELETE FROM list_optouts WHERE contact_id = $1 AND list_id = ANY($2::int[])`, [contactId, listIds]);
+  }
   const added = await many(
     `INSERT INTO list_contacts (list_id, contact_id)
-     SELECT l.id, $2 FROM lists l WHERE l.workspace_id = $3 AND l.id = ANY($1::int[]) ON CONFLICT DO NOTHING RETURNING list_id`,
+     SELECT l.id, $2 FROM lists l WHERE l.workspace_id = $3 AND l.id = ANY($1::int[])
+       AND NOT EXISTS (SELECT 1 FROM list_optouts o WHERE o.contact_id = $2 AND o.list_id = l.id)
+     ON CONFLICT DO NOTHING RETURNING list_id`,
     [listIds, contactId, workspaceId]
   );
-  if (added.length) await enroll(workspaceId, contactId, added.map((r) => r.list_id), source);
+  const blocked = (await one(`SELECT count(*)::int AS n FROM list_optouts WHERE contact_id = $1 AND list_id = ANY($2::int[])`, [contactId, listIds])).n;
+  if (added.length) await enroll(workspaceId, contactId, added.map((r) => r.list_id), source === 'prefs' ? 'manual' : source);
+  return { blocked };
 }

@@ -4,7 +4,7 @@ import { buildEmail } from './render.js';
 import { decrypt } from './config.js';
 import { senderAllowed } from './validate.js';
 import { throttled } from './throttle.js';
-import { sentToday } from './usage.js';
+import { sentToday, campaignLimit } from './usage.js';
 import { processDueRuns } from './automations.js';
 import { compileSegment } from './segments.js';
 
@@ -75,7 +75,9 @@ export async function drainOnce() {
   );
 
   for (const workspace of workspaces) {
-    const dailyLeft = Math.max(0, (workspace.daily_limit || 0) - (await sentToday(workspace.id)));
+    // While warming up, the cap grows day by day. Transactional mail is not held back by it.
+    const lim = await campaignLimit(workspace);
+    const dailyLeft = Math.max(0, lim.limit - (await sentToday(workspace.id)));
     // rate_per_minute is per minute, so scale it down to the size of one tick.
     const perTick = Math.max(1, Math.ceil(((workspace.rate_per_minute || 60) * TICK_MS) / 60000));
     const batchSize = Math.min(perTick, dailyLeft);
@@ -86,9 +88,13 @@ export async function drainOnce() {
       `UPDATE messages SET status = 'sending', claimed_at = now()
        WHERE id IN (
          SELECT id FROM messages WHERE workspace_id = $1 AND status = 'queued'
-         ORDER BY queued_at ASC LIMIT $2 FOR UPDATE SKIP LOCKED
+         ORDER BY queued_at ASC,
+           CASE WHEN $3::boolean THEN (SELECT count(*) FROM messages p WHERE p.contact_id = messages.contact_id AND p.opened_at IS NOT NULL) ELSE 0 END DESC,
+           id ASC
+         LIMIT $2 FOR UPDATE SKIP LOCKED
        ) RETURNING *`,
-      [workspace.id, batchSize]
+      // While warming up, the most engaged people go first, which builds a good reputation fastest.
+      [workspace.id, batchSize, lim.active]
     );
     for (const message of batch) await throttled(() => sendMessage(workspace, message));
   }
@@ -108,6 +114,18 @@ async function sendMessage(workspace, message) {
   if (!contact || !campaign || contact.status !== 'subscribed') {
     await query(`UPDATE messages SET status = 'skipped' WHERE id = $1`, [message.id]);
     return;
+  }
+  // Preferences set on the preference page: a pause, or a cap on emails per week.
+  if (contact.paused_until && new Date(contact.paused_until) > new Date()) {
+    await query(`UPDATE messages SET status = 'skipped', error = 'Skipped: this person paused emails' WHERE id = $1`, [message.id]);
+    return;
+  }
+  if (contact.max_per_week) {
+    const recent = await one(`SELECT count(*)::int AS n FROM messages WHERE contact_id = $1 AND status = 'sent' AND sent_at > now() - interval '7 days'`, [contact.id]);
+    if (recent.n >= contact.max_per_week) {
+      await query(`UPDATE messages SET status = 'skipped', error = 'Skipped: this person limits emails per week' WHERE id = $1`, [message.id]);
+      return;
+    }
   }
   if (!senderAllowed(workspace)) {
     await query(`UPDATE messages SET status = 'failed', error = $2 WHERE id = $1`,

@@ -63,3 +63,44 @@ if(x.j.redirect){setTimeout(function(){if(embed&&parent!==window)parent.postMess
 })();
 </script></body></html>`;
 }
+
+const maskEmail = (e) => { const [l, d] = String(e).split('@'); return `${l.slice(0, 1)}${'*'.repeat(Math.max(2, Math.min(6, l.length - 1)))}@${d}`; };
+
+// The preference center. Plain forms, no scripts. Every change is a POST, so mail scanners that open the link change nothing.
+export function prefsPage({ ws, contact, lists, left, token, notice = '' }) {
+  const t = esc(token);
+  const checks = [
+    ...lists.map((l) => `<label class="opt"><input type="checkbox" name="keep" value="${l.id}" checked><span>${esc(l.name)}</span></label>`),
+    ...left.map((l) => `<label class="opt"><input type="checkbox" name="keep" value="${l.id}"><span>${esc(l.name)} <em>(you left this list)</em></span></label>`)
+  ].join('');
+  const shown = [...lists, ...left].map((l) => l.id).join(',');
+  const freq = (v, label) => `<label class="opt"><input type="radio" name="freq" value="${v}"${Number(contact.max_per_week || 0) === v ? ' checked' : ''}><span>${label}</span></label>`;
+  const paused = contact.paused_until && new Date(contact.paused_until) > new Date();
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Email preferences</title>
+<style>${BASE_CSS}body{padding:24px;background:linear-gradient(180deg,#fff,#f1f6ff)}
+.wrap{max-width:520px;margin:0 auto}.card{background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:24px;margin-bottom:16px;box-shadow:0 10px 30px rgba(11,42,91,.06)}
+h2{margin:0 0 4px;font-size:17px;color:#0b2a5b}.sub{margin:0 0 14px;color:#64748b;font-size:14px}
+.opt{display:flex;gap:10px;align-items:flex-start;margin:0 0 10px;font-size:15px;cursor:pointer}.opt input{margin-top:4px;flex:none}.opt em{color:#94a3b8;font-style:normal;font-size:13px}
+.ok{background:#ecfdf5;color:#047857;border:1px solid #a7f3d0;border-radius:10px;padding:10px 12px;margin-bottom:16px;font-size:14px}
+.btn.sec{background:#fff;color:#0b2a5b;border:1px solid #cbd5e1}.btn.dng{background:#fff;color:#b91c1c;border:1px solid #fecaca}.gap{margin-top:10px}.foot{text-align:center;font-size:12px;color:#94a3b8}
+.note{margin:0 0 12px;padding:10px 12px;background:#fffbeb;border:1px solid #fde68a;border-radius:10px;font-size:14px;color:#92400e}</style></head>
+<body><div class="wrap">
+<h1 style="margin-bottom:4px">Email preferences</h1>
+<p class="sub" style="margin-bottom:16px">${esc(ws.name)} sends to ${esc(maskEmail(contact.email))}. Choose what you want to hear about.</p>
+${notice ? `<div class="ok" role="status">${esc(notice)}</div>` : ''}
+<form class="card" method="post" action="/t/p/${t}">
+<input type="hidden" name="action" value="save"><input type="hidden" name="shown" value="${esc(shown)}">
+${checks ? `<h2>Topics</h2><p class="sub">Untick anything you do not want any more.</p>${checks}` : ''}
+<h2 style="margin-top:${checks ? '18px' : '0'}">How often</h2><p class="sub">A limit applies to every email from this sender.</p>
+${freq(0, 'Send me everything')}${freq(1, 'At most 1 email a week')}${freq(2, 'At most 2 emails a week')}
+<button class="btn gap" type="submit">Save my preferences</button></form>
+<div class="card"><h2>Need a break?</h2>
+${paused ? `<div class="note">Emails are paused until ${esc(new Date(contact.paused_until).toDateString())}.</div>
+<form method="post" action="/t/p/${t}"><input type="hidden" name="action" value="resume"><button class="btn sec" type="submit">Start emails again</button></form>`
+  : `<p class="sub">Pause everything and we will not email you until it ends.</p>
+<form method="post" action="/t/p/${t}"><input type="hidden" name="action" value="pause"><div class="opt"><span style="flex:1"><button class="btn sec" name="days" value="30" type="submit">Pause for 30 days</button></span><span style="flex:1"><button class="btn sec" name="days" value="90" type="submit">Pause for 90 days</button></span></div></form>`}
+</div>
+<div class="card"><h2>Leave completely</h2><p class="sub">You will not receive any more emails from ${esc(ws.name)}.</p>
+<form method="post" action="/t/u/${t}"><button class="btn dng" type="submit">Unsubscribe from everything</button></form></div>
+<div class="foot">Powered by Wynmail</div></div></body></html>`;
+}

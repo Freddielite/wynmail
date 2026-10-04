@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { Btn, CopyBtn, useGuard } from '../ui.jsx';
+import Warmup from './Warmup.jsx';
 
 export default function Settings({ admin }) {
   const guard = useGuard();
@@ -16,11 +17,13 @@ export default function Settings({ admin }) {
   if (!form) return <p className="muted">Loading...</p>;
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+  const tick = (k) => (e) => setForm({ ...form, [k]: e.target.checked });
 
   const save = guard(async () => {
     const body = {
       name: form.name || '', from_name: form.from_name || '', from_email: form.from_email || '', reply_to: form.reply_to || '',
-      footer_address: form.footer_address || '', tracking_domain: form.tracking_domain || ''
+      footer_address: form.footer_address || '', tracking_domain: form.tracking_domain || '',
+      block_disposable: !!form.block_disposable, block_role: !!form.block_role, check_mx: !!form.check_mx, preference_center: !!form.preference_center
     };
     if (admin) {
       Object.assign(body, { sending_domain: form.sending_domain || '', provider: form.provider,
@@ -138,6 +141,26 @@ export default function Settings({ admin }) {
           </div>
         </div>
       </div>
+
+      <div className="grid cols-2" style={{ marginTop: 18 }}>
+        <div className="card">
+          <h3>List protection</h3>
+          <p className="muted" style={{ margin: '4px 0 14px' }}>Applies to signup forms, the API, imports and adding contacts by hand.</p>
+          <label className="optline"><input type="checkbox" checked={!!form.block_disposable} onChange={tick('block_disposable')} /><span>Refuse disposable inboxes<small>Throwaway addresses like mailinator.com. Typos such as gmial.com are always caught, with a suggested fix.</small></span></label>
+          <label className="optline"><input type="checkbox" checked={!!form.check_mx} onChange={tick('check_mx')} /><span>Check that the domain can receive mail<small>Refuses addresses at domains that do not exist. A failed lookup never blocks anyone.</small></span></label>
+          <label className="optline"><input type="checkbox" checked={!!form.block_role} onChange={tick('block_role')} /><span>Refuse shared inboxes<small>Addresses like info@ and support@. Off by default, since some businesses need them.</small></span></label>
+          {saveBtn}
+        </div>
+        <div className="card">
+          <h3>Preference center</h3>
+          <p className="muted" style={{ margin: '4px 0 14px' }}>What people see when they click Unsubscribe in one of your emails.</p>
+          <label className="optline"><input type="checkbox" checked={!!form.preference_center} onChange={tick('preference_center')} /><span>Let people choose instead of leaving<small>They can untick topics, limit emails to 1 or 2 a week, or pause for 30 or 90 days. Unsubscribing from everything is always one click away. Fewer people leave completely.</small></span></label>
+          <p className="muted" style={{ margin: '0 0 14px' }}>Topics are your lists. Hide a list from this page with the box next to it on Contacts.</p>
+          {saveBtn}
+        </div>
+      </div>
+
+      <Warmup admin={admin} />
     </>
   );
 }

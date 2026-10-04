@@ -43,7 +43,7 @@ export default function ContactProfile() {
     if (key && attr.value.trim()) setForm({ ...form, attributes: { ...form.attributes, [key]: attr.value.trim() } });
     setAttr({ key: '', value: '' });
   };
-  const join = guard(async () => { if (!addList) throw new Error('Choose a list'); await api.addToList(id, Number(addList)); setAddList(''); await load(); return 'Added to the list'; });
+  const join = guard(async () => { if (!addList) throw new Error('Choose a list'); const r = await api.addToList(id, Number(addList)); if (r.blocked) throw new Error('They left this list on their own preference page, so only they can rejoin it.'); setAddList(''); await load(); return 'Added to the list'; });
   const leave = (l) => guard(async () => { await api.removeFromList(id, l.id); await load(); return `Removed from ${l.name}`; });
   const unblock = guard(async () => {
     if (!window.confirm(`Unblock ${c.email}? Only do this if you know the address works and they want your emails.`)) return;
@@ -104,6 +104,9 @@ export default function ContactProfile() {
               {data.lists.map((l) => <span className="tagchip" key={l.id}>{l.name}<button type="button" aria-label={`Remove from ${l.name}`} onClick={leave(l)}>x</button></span>)}
               {!data.lists.length && <span className="muted">Not on any list.</span>}
             </div>
+            {data.left?.length > 0 && <p className="muted" style={{ margin: '0 0 10px' }}>Left on their own: {data.left.map((l) => l.name).join(', ')}. Only they can rejoin.</p>}
+            {c.paused_until && new Date(c.paused_until) > new Date() && <p className="muted" style={{ margin: '0 0 10px' }}>Paused emails until {when(c.paused_until)}.</p>}
+            {c.max_per_week > 0 && <p className="muted" style={{ margin: '0 0 10px' }}>Asked for at most {c.max_per_week} email{c.max_per_week === 1 ? '' : 's'} a week.</p>}
             <div className="row">
               <select value={addList} onChange={(e) => setAddList(e.target.value)}><option value="">Add to a list</option>{allLists.filter((l) => !memberOf.has(l.id)).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select>
               <Btn className="btn ghost sm" busyText="Adding..." onClick={join}>Add</Btn>

@@ -3,6 +3,7 @@ import { api } from '../api.js';
 import { Btn, useGuard, usePolling, when } from '../ui.jsx';
 import EditorField from '../builder/EditorField.jsx';
 import CampaignAnalytics from './CampaignAnalytics.jsx';
+import PreCheck from './PreCheck.jsx';
 
 const blank = { name: '', subject: '', preview_text: '', html: '', design: null, audience: 'list', list_id: '', segment_id: '', scheduled_at: '', template_id: '' };
 const outcome = (m) => {
@@ -24,6 +25,7 @@ export default function Campaigns() {
   const [preview, setPreview] = useState('');
   const [detail, setDetail] = useState(null);
   const [messages, setMessages] = useState([]);
+  const [check, setCheck] = useState(null);
 
   const [segments, setSegments] = useState([]);
   const loadAll = async () => {
@@ -70,6 +72,15 @@ export default function Campaigns() {
     return created.id;
   };
 
+  const checkBody = (deep = false) => ({ subject: draft.subject, html: draft.html, preview_text: draft.preview_text,
+    list_id: draft.audience === 'list' && draft.list_id ? Number(draft.list_id) : null,
+    segment_id: draft.audience === 'segment' && draft.segment_id ? Number(draft.segment_id) : null, deep });
+  const runCheck = (deep) => guard(async () => {
+    if (!draft.subject.trim() && !draft.html.trim()) throw new Error('Write the email first, then check it');
+    setCheck(await api.precheck(checkBody(deep)));
+    setTimeout(() => document.getElementById('precheck')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
+  });
+
   const sendTest = guard(async () => {
     if (!draft.subject.trim()) throw new Error('Add a subject first');
     if (!draft.html.trim()) throw new Error('Add some content first');
@@ -80,6 +91,19 @@ export default function Campaigns() {
   const saveDraft = guard(async () => { await persist(null); await loadAll(); return 'Draft saved'; });
 
   const launch = guard(async () => {
+    // A quick check first. If it finds real problems, the person decides whether to go ahead.
+    if (draft.subject.trim() && draft.html.trim()) {
+      let r = null;
+      try { r = await api.precheck(checkBody(false)); } catch { /* the check never blocks a send by failing */ }
+      if (r && r.verdict === 'risky') {
+        setCheck(r);
+        const n = r.fails;
+        if (!window.confirm(`The check found ${n} problem${n === 1 ? '' : 's'} that could hurt delivery. Send anyway?`)) {
+          setTimeout(() => document.getElementById('precheck')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
+          return;
+        }
+      }
+    }
     if (draft.scheduled_at) {
       const at = new Date(draft.scheduled_at);
       if (at <= new Date()) throw new Error('Pick a time in the future, or clear the schedule to send now');
@@ -180,10 +204,13 @@ export default function Campaigns() {
         <div className="row" style={{ flexWrap: 'wrap', marginTop: 16 }}>
           <Btn busyText={draft.scheduled_at ? 'Scheduling...' : 'Sending...'} onClick={launch}>{draft.scheduled_at ? 'Schedule campaign' : 'Send now'}</Btn>
           <Btn className="btn ghost" busyText="Saving..." onClick={saveDraft}>Save draft</Btn>
+          <Btn className="btn ghost" busyText="Checking..." onClick={runCheck(false)}>Check before sending</Btn>
           <Btn className="btn ghost" busyText="Sending test..." onClick={sendTest}>Send test to me</Btn>
           {(editing || draft.subject || draft.html) && <button className="btn ghost" onClick={reset}>Clear</button>}
         </div>
       </div>
+
+      {check && <PreCheck result={check} onClose={() => setCheck(null)} onDeep={runCheck(true)} />}
 
       {preview && (
         <div className="card" id="rendered-preview" style={{ marginTop: 18 }}>

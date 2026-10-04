@@ -18,7 +18,9 @@
     "test:designs": "node test/designs.mjs",
     "test:media": "node test/media.mjs",
     "test:analytics": "node test/analytics.mjs",
-    "test:segments": "node test/segments.mjs"
+    "test:segments": "node test/segments.mjs",
+    "test:deliverability": "node test/deliverability.mjs",
+    "test:deliverability-unit": "node test/deliverability-unit.mjs"
   },
   "keywords": [],
   "author": "",

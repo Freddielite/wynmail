@@ -23,6 +23,11 @@ import profileRoutes from './profile.js';
 import mediaAdmin from './media.js';
 import analyticsRoutes from './analytics.js';
 import { compileSegment } from '../segments.js';
+import { assessEmail, assessMany, groupProblems, isRole, mxEnabled } from '../hygiene.js';
+import { analyze, score, domainItems, reputationItems, mergeGapItems, mergeFieldsUsed, linkItems, classifyProbe, uniqueWebLinks } from '../precheck.js';
+import { probe } from '../safefetch.js';
+import { campaignLimit } from '../usage.js';
+import { capForDay, schedule, daysToSend, warmupDay } from '../warmup.js';
 import automationsAdmin from './automationsAdmin.js';
 import { isEmail, normEmail, DOMAIN_RE, TRACKING_RE, cleanName, cleanText, cleanAttrs, senderAllowed, readDesign } from '../validate.js';
 
@@ -98,6 +103,24 @@ router.put('/', async (req, res) => {
     v.from_email = e;
   }
 
+  // List protection and the preference center belong to the workspace owner. Warm-up is an admin setting.
+  const owner = await canManageTeam(req);
+  const flag = (k) => (owner && typeof f[k] === 'boolean' ? f[k] : null);
+  let warmEnabled = null, warmVolume = null, warmGrowth = null;
+  if (admin) {
+    if (typeof f.warmup_enabled === 'boolean') warmEnabled = f.warmup_enabled;
+    if (f.warmup_start_volume !== undefined) {
+      const n = Number(f.warmup_start_volume);
+      if (!Number.isInteger(n) || n < 1 || n > 5000) return bad(res, 'warm-up start volume must be 1 to 5000');
+      warmVolume = n;
+    }
+    if (f.warmup_growth !== undefined) {
+      const n = Number(f.warmup_growth);
+      if (!(n >= 1.1 && n <= 3)) return bad(res, 'warm-up growth must be between 1.1 and 3');
+      warmGrowth = n;
+    }
+  }
+
   const newKey = typeof f.provider_api_key === 'string' && f.provider_api_key.trim() ? encrypt(f.provider_api_key.trim()) : null;
   const newHook = typeof f.webhook_secret === 'string' && f.webhook_secret.trim() ? encrypt(f.webhook_secret.trim()) : null;
 
@@ -109,11 +132,18 @@ router.put('/', async (req, res) => {
        footer_address = COALESCE($8, footer_address), rate_per_minute = COALESCE($9, rate_per_minute),
        daily_limit = COALESCE($10, daily_limit), provider = COALESCE($11, provider),
        provider_api_key = CASE WHEN $13::boolean THEN NULL ELSE COALESCE($12, provider_api_key) END,
-       webhook_secret = CASE WHEN $15::boolean THEN NULL ELSE COALESCE($14, webhook_secret) END
+       webhook_secret = CASE WHEN $15::boolean THEN NULL ELSE COALESCE($14, webhook_secret) END,
+       block_disposable = COALESCE($16::boolean, block_disposable), block_role = COALESCE($17::boolean, block_role),
+       check_mx = COALESCE($18::boolean, check_mx), preference_center = COALESCE($19::boolean, preference_center),
+       warmup_enabled = COALESCE($20::boolean, warmup_enabled), warmup_start_volume = COALESCE($21::int, warmup_start_volume),
+       warmup_growth = COALESCE($22::float8, warmup_growth),
+       warmup_started_at = CASE WHEN $23::boolean THEN now() WHEN $20::boolean IS TRUE AND warmup_started_at IS NULL THEN now() ELSE warmup_started_at END
      WHERE id = $1 RETURNING *`,
     [ws(req), v.name, v.sending_domain, v.from_name, v.from_email, v.reply_to, v.tracking_domain,
      v.footer_address, v.rate_per_minute, v.daily_limit, v.provider, newKey, f.clear_provider_key === true,
-     newHook, f.clear_webhook_secret === true]
+     newHook, f.clear_webhook_secret === true,
+     flag('block_disposable'), flag('block_role'), flag('check_mx'), flag('preference_center'),
+     warmEnabled, warmVolume, warmGrowth, admin && f.warmup_restart === true]
   );
   res.json(publicWorkspace(row));
 });
@@ -131,6 +161,13 @@ router.post('/lists', async (req, res) => {
   const name = cleanName(req.body?.name);
   if (!name) return bad(res, 'name required');
   res.json(await one(`INSERT INTO lists (workspace_id, name) VALUES ($1, $2) RETURNING *`, [ws(req), name]));
+});
+
+router.put('/lists/:id', async (req, res) => {
+  if (typeof req.body?.show_in_prefs !== 'boolean') return bad(res, 'show_in_prefs must be true or false');
+  const row = await one(`UPDATE lists SET show_in_prefs = $3 WHERE id = $1 AND workspace_id = $2 RETURNING *`, [req.params.id, ws(req), req.body.show_in_prefs]);
+  if (!row) return res.status(404).json({ error: 'not found' });
+  res.json(row);
 });
 
 router.delete('/lists/:id', async (req, res) => {
@@ -152,13 +189,16 @@ router.get('/contacts', async (req, res) => {
     if (!seg) return res.status(404).json({ error: 'segment not found' });
     where.push(compileSegment(seg.definition, params));
   }
-  res.json(await many(`SELECT c.* FROM contacts c WHERE ${where.join(' AND ')} ORDER BY c.id DESC LIMIT 500`, params));
+  const rows = await many(`SELECT c.* FROM contacts c WHERE ${where.join(' AND ')} ORDER BY c.id DESC LIMIT 500`, params);
+  res.json(rows.map((r) => ({ ...r, role_address: isRole(r.email) })));
 });
 
 router.post('/contacts', async (req, res) => {
   if (!isEmail(normEmail(req.body?.email))) return bad(res, 'valid email required');
   const listId = req.body.list_id ? Number(req.body.list_id) : null;
   if (listId && !(await ownsList(ws(req), listId))) return bad(res, 'unknown list');
+  const verdict = await assessEmail(normEmail(req.body.email), req.workspace);
+  if (!verdict.ok) return res.status(400).json({ error: verdict.message, code: verdict.code, ...(verdict.suggestion ? { suggestion: verdict.suggestion } : {}) });
   res.json(await upsertContact(ws(req), req.body, listId));
 });
 
@@ -173,10 +213,20 @@ router.post('/contacts/import', async (req, res) => {
   const parsed = readContacts(parseCsv(csv), { maxRows: MAX_IMPORT_ROWS, isEmail, normEmail });
   if (parsed.error) return bad(res, parsed.error);
 
-  for (const c of parsed.contacts) {
+  // Typos, throwaway inboxes and dead domains are left out, and the report says why.
+  const verdicts = await assessMany(parsed.contacts.map((c) => c.email), req.workspace);
+  const rejected = { disposable: 0, typo: 0, no_mx: 0, role: 0 };
+  const good = [];
+  parsed.contacts.forEach((c, i) => {
+    if (verdicts[i].ok) return good.push(c);
+    rejected[verdicts[i].code] += 1;
+    if (parsed.errors.length < 5) parsed.errors.push({ row: null, reason: `${c.email}: ${verdicts[i].message}` });
+  });
+  for (const c of good) {
     await upsertContact(ws(req), { ...c, consent_source: 'csv-import' }, listId, { source: 'import' });
   }
-  res.json({ imported: parsed.contacts.length, skipped: parsed.skipped, duplicates: parsed.duplicates, errors: parsed.errors });
+  const rejectedTotal = Object.values(rejected).reduce((a, b) => a + b, 0);
+  res.json({ imported: good.length, skipped: parsed.skipped, duplicates: parsed.duplicates, rejected: rejectedTotal, rejected_by: rejected, errors: parsed.errors });
 });
 
 router.delete('/contacts/:id', async (req, res) => {
@@ -540,6 +590,140 @@ router.get('/domain-check', domainLimit, async (req, res) => {
   }
   res.json({ domain, checks: await checkDomain({ domain, tracking }) });
 });
+
+/* ---------- list health ---------- */
+const scanLimit = rateLimit({ windowMs: 3600000, max: 12, key: (req) => `h${req.workspace.id}` });
+const KINDS = ['disposable', 'typo', 'no_mx', 'role'];
+
+router.get('/hygiene', scanLimit, async (req, res) => {
+  const rows = await many(`SELECT id, email FROM contacts WHERE workspace_id = $1 AND status = 'subscribed'`, [ws(req)]);
+  const r = await groupProblems(rows, {});
+  res.json({
+    total: rows.length, mx_checked: mxEnabled(), domains: r.domains, domains_checked: r.checked, truncated: r.truncated,
+    counts: Object.fromEntries(KINDS.map((k) => [k, r.groups[k].length])),
+    samples: Object.fromEntries(KINDS.map((k) => [k, r.groups[k].slice(0, 6).map((x) => x.email)]))
+  });
+});
+
+// Marks addresses that can never work as blocked. Shared inboxes are never touched, that is a choice for the owner.
+router.post('/hygiene/clean', scanLimit, async (req, res) => {
+  if (!(await canManageTeam(req))) return res.status(403).json({ error: 'Only the workspace owner can clean the list' });
+  const kinds = (Array.isArray(req.body?.kinds) ? req.body.kinds : []).filter((k) => ['disposable', 'typo', 'no_mx'].includes(k));
+  if (!kinds.length) return bad(res, 'Choose what to clean');
+  const rows = await many(`SELECT id, email FROM contacts WHERE workspace_id = $1 AND status = 'subscribed'`, [ws(req)]);
+  const r = await groupProblems(rows, {});
+  const ids = [...new Set(kinds.flatMap((k) => r.groups[k].map((x) => x.id)))];
+  if (!ids.length) return res.json({ cleaned: 0 });
+  await query(`INSERT INTO suppressions (workspace_id, email, reason) SELECT $1, email, 'invalid' FROM contacts WHERE workspace_id = $1 AND id = ANY($2::int[]) ON CONFLICT DO NOTHING`, [ws(req), ids]);
+  await query(`UPDATE contacts SET status = 'bounced' WHERE workspace_id = $1 AND id = ANY($2::int[]) AND status = 'subscribed'`, [ws(req), ids]);
+  res.json({ cleaned: ids.length });
+});
+
+/* ---------- warm-up ---------- */
+router.get('/warmup', async (req, res) => {
+  const w = req.workspace;
+  const lim = await campaignLimit(w);
+  const today = await sentToday(w.id);
+  res.json({
+    enabled: !!w.warmup_enabled && !!w.warmup_started_at, day: warmupDay(w), done: lim.done, hold: lim.hold,
+    start_volume: w.warmup_start_volume, growth: Number(w.warmup_growth), daily_limit: w.daily_limit,
+    today_cap: lim.limit, planned_cap: lim.planned, sent_today: today, started_at: w.warmup_started_at,
+    schedule: w.warmup_enabled ? schedule(w, 14) : []
+  });
+});
+
+/* ---------- check before sending ---------- */
+const checkLimit = rateLimit({ windowMs: 10 * 60 * 1000, max: 40, key: (req) => `pc${req.workspace.id}` });
+const deepLimit = rateLimit({ windowMs: 10 * 60 * 1000, max: 8, key: (req) => `pd${req.workspace.id}` });
+
+async function audienceFor(workspaceId, listId, segmentId) {
+  const params = [workspaceId];
+  let cond;
+  if (segmentId) {
+    const seg = await one(`SELECT definition FROM segments WHERE id = $1 AND workspace_id = $2`, [segmentId, workspaceId]);
+    if (!seg) return null;
+    cond = compileSegment(seg.definition, params);
+  } else if (listId) {
+    if (!(await ownsList(workspaceId, listId))) return null;
+    params.push(listId);
+    cond = `EXISTS (SELECT 1 FROM list_contacts lc WHERE lc.contact_id = c.id AND lc.list_id = $${params.length})`;
+  } else return { total: 0, base: null, params };
+  const base = `c.workspace_id = $1 AND c.status = 'subscribed' AND ${cond}`;
+  const total = (await one(`SELECT count(*)::int AS n FROM contacts c WHERE ${base}`, params)).n;
+  return { total, base, params };
+}
+
+router.post('/precheck', checkLimit, (req, res, next) => (req.body?.deep === true ? deepLimit(req, res, next) : next()), async (req, res) => {
+  const b = req.body || {};
+  const w = req.workspace;
+  const subject = cleanText(b.subject, 300);
+  const html = String(b.html || '').slice(0, MAX_HTML);
+  const preview = cleanText(b.preview_text, 150);
+  const listId = /^\d{1,9}$/.test(String(b.list_id || '')) ? Number(b.list_id) : null;
+  const segmentId = /^\d{1,9}$/.test(String(b.segment_id || '')) ? Number(b.segment_id) : null;
+
+  const built = buildEmail({ workspace: w, contact: { email: 'sample@example.com', first_name: 'Sam', attributes: {} }, subject, html, token: 'preview', preheader: preview });
+  const items = analyze({ subject, preview, html, workspace: w, renderedBytes: Buffer.byteLength(built.html) });
+
+  const domain = String(w.sending_domain || '').toLowerCase();
+  const wantDomain = domain && domain !== 'resend.dev';
+  const wantLinks = b.deep === true;
+
+  const [dns, rep, aud, probes] = await Promise.all([
+    wantDomain ? checkDomain({ domain, tracking: String(w.tracking_domain || '').toLowerCase() }).catch(() => null) : null,
+    one(`SELECT count(*) FILTER (WHERE status = 'sent')::int AS sent, count(*) FILTER (WHERE bounce_type = 'Permanent')::int AS bounced,
+           count(*) FILTER (WHERE complained_at IS NOT NULL)::int AS complained
+         FROM messages WHERE workspace_id = $1 AND sent_at > now() - interval '30 days'`, [w.id]),
+    audienceFor(w.id, listId, segmentId),
+    wantLinks ? runProbes(uniqueWebLinks(html)) : null
+  ]);
+
+  if (dns) items.push(...domainItems(dns));
+  items.push(...reputationItems(rep));
+  if (probes) items.push(...linkItems(probes));
+
+  let audience = null;
+  if (aud) {
+    audience = aud.total;
+    if (aud.base) {
+      if (!aud.total) items.push({ id: 'audience_empty', level: 'fail', title: 'No one can receive this', detail: 'Everyone in this audience has unsubscribed, bounced or reported spam.' });
+      const used = mergeFieldsUsed(subject, html, preview).slice(0, 8);
+      const gaps = [];
+      for (const u of used) {
+        let expr = null; const p = [...aud.params];
+        if (u.key === 'first_name') expr = 'c.first_name'; else if (u.key === 'last_name') expr = 'c.last_name';
+        else if (u.key !== 'email' && /^\w{1,40}$/.test(u.key)) { p.push(u.key); expr = `c.attributes->>$${p.length}`; }
+        if (!expr) continue;
+        const row = await one(`SELECT count(*)::int AS total, count(*) FILTER (WHERE trim(coalesce(${expr}, '')) = '')::int AS missing FROM contacts c WHERE ${aud.base}`, p);
+        gaps.push({ key: u.key, hasFallback: u.hasFallback, ...row });
+      }
+      items.push(...mergeGapItems(gaps));
+
+      const lim = await campaignLimit(w);
+      const left = Math.max(0, lim.limit - (await sentToday(w.id)));
+      if (lim.hold) items.push({ id: 'warmup_hold', level: 'warn', title: 'Warm-up growth is paused', detail: `${lim.hold}. Volume stays level until it recovers.` });
+      if (aud.total > left && lim.day) {
+        const days = daysToSend(aud.total, w, left);
+        items.push({ id: 'warmup_spread', level: 'info', title: `This will be sent over about ${days} day${days === 1 ? '' : 's'}`,
+          detail: `${lim.limit} emails a day are allowed while this domain warms up. The most engaged people go first.` });
+      } else if (aud.total > left) {
+        items.push({ id: 'limit_spread', level: 'info', title: 'Part of this will wait until tomorrow', detail: `Only ${left} more can go out today under your daily limit.` });
+      }
+    }
+  }
+
+  const order = { fail: 0, warn: 1, info: 2, pass: 3 };
+  items.sort((a, b2) => order[a.level] - order[b2.level]);
+  res.json({ ...score(items), items, audience, links_checked: probes ? probes.length : null });
+});
+
+async function runProbes(urls) {
+  const out = [];
+  for (let i = 0; i < urls.length; i += 5) {
+    out.push(...(await Promise.all(urls.slice(i, i + 5).map(async (u) => classifyProbe(u, await probe(u))))));
+  }
+  return out;
+}
 
 /* ---------- dashboard ---------- */
 router.get('/stats', async (req, res) => {

@@ -154,6 +154,18 @@ A client with their own Resend account adds a webhook to `https://<your-render-u
 - Changing or resetting a password signs out every other session.
 - Send test to me on the campaign editor sends the draft to the signed-in user. It only goes to members of the workspace and counts toward the daily limit.
 
+## Deliverability and safety
+
+**Check before sending.** Campaigns has a "Check before sending" button. It scores the email out of 100 and lists what to fix, worst first: spam trigger words, shouting subjects, link shorteners, links that show one address and open another, pictures with no description, merge fields that some recipients are missing, emails big enough for Gmail to cut off, missing SPF, DKIM or DMARC, and your recent bounce and spam rates. "Also check links" fetches each link to find dead pages (internal addresses are never fetched). Pressing Send runs the quick check too, and asks before sending if it finds real problems.
+
+**Signup hygiene.** Forms, the API, imports and manual adds all refuse typos (gmial.com, with a suggested fix), disposable inboxes, and domains that cannot receive mail. Shared inboxes like info@ can be refused too, off by default. Imports keep the good rows and report the rest by reason. A failed DNS lookup never blocks anyone. Contacts has a list health scan with a one-click block for addresses that cannot work. Settings has the switches. Set `MX_CHECK=off` to skip domain lookups, or `MX_CHECK=on` to force them when `FORCE_PROVIDER=console`.
+
+**Warm-up.** An admin can turn on warm-up for a new sending domain in Settings. Campaigns and automations then send at most the day's cap (day 1 volume, growing by a set factor each day, never above the daily limit), the most engaged people first. Growth holds if the day before had over 5% bounces or over 0.3% spam reports. Password resets, confirmations, test and API emails are not held back. A campaign larger than the cap simply finishes over several days.
+
+**Preference center.** The unsubscribe link opens a page where people can untick lists, limit emails to 1 or 2 a week, pause for 30 or 90 days, or unsubscribe from everything. Opening the page changes nothing, every change is a POST. A list someone left is not re-added by imports, the API or automations, only by their own confirmed signup or their own preference page. Owners can switch the page off in Settings and hide lists from it on Contacts. One-click unsubscribe from the mail client still works as before.
+
+Every email now carries a proper plain text part with real link addresses, the postal address and the unsubscribe link.
+
 ## Security model
 
 - Signup is closed after the first account. That account becomes the admin (set `ADMIN_EMAIL` so only you can claim it). Admins create client workspaces on the Clients page.
@@ -169,7 +181,7 @@ A client with their own Resend account adds a webhook to `https://<your-render-u
 
 Regression suite: start the server on an empty database with `FORCE_PROVIDER=console`, then run `npm run test:security` inside `server`.
 
-Known limits: no password reset, email verification or 2FA yet, and the session token lives in browser localStorage.
+Known limits: no email verification or 2FA yet, and the session token lives in browser localStorage.
 
 ## Deploy
 
@@ -186,10 +198,9 @@ Push the repo to GitHub, then:
 - Point each client's `track.clientdomain.com` at the backend, and set it as the workspace tracking domain, so link reputation stays per client.
 - Verify each sending domain with the provider and publish SPF, DKIM and DMARC. The Settings page shows the checklist.
 
-## Not in v1
+## Not yet built
 
-- Automations and drip sequences
-- Bounce and complaint webhooks from the provider
-- Drag-and-drop email builder
 - Billing and plan limits
-- Public signup forms
+- A/B subject tests and send-time optimisation
+- Outbound webhooks to clients
+- Roles beyond owner and admin

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { Btn, useGuard, when } from '../ui.jsx';
+import ListHealth from './ListHealth.jsx';
 
 const statusClass = { subscribed: 'green', unsubscribed: 'amber', bounced: 'red', complained: 'red' };
 
@@ -32,6 +33,7 @@ export default function Contacts() {
   useEffect(() => { guard(load)(); setTarget(listId); }, [listId, statusFilter, segmentId]);
   useEffect(() => { api.members().then((m) => setCanManage(m.can_manage)).catch(() => {}); }, []);
 
+  const togglePrefs = (l) => guard(async () => { await api.setListPrefs(l.id, !l.show_in_prefs); await load(); });
   const targetName = lists.find((l) => String(l.id) === String(target))?.name;
 
   const addList = guard(async () => {
@@ -57,6 +59,7 @@ export default function Contacts() {
     await load();
     const bits = [`Imported ${res.imported}${targetName ? ` into ${targetName}` : ''}`];
     if (res.duplicates) bits.push(`${res.duplicates} duplicate${res.duplicates === 1 ? '' : 's'} ignored`);
+    if (res.rejected) bits.push(`${res.rejected} left out (${Object.entries(res.rejected_by || {}).filter(([, n]) => n).map(([k, n]) => `${n} ${{ disposable: 'disposable', typo: 'typo', no_mx: 'dead domain', role: 'shared' }[k]}`).join(', ')})`);
     if (res.skipped) bits.push(`${res.skipped} skipped${res.errors?.[0] ? ` (row ${res.errors[0].row}: ${res.errors[0].reason})` : ''}`);
     return bits.join(', ');
   });
@@ -122,6 +125,16 @@ export default function Contacts() {
                 {lists.map((l) => <option key={l.id} value={l.id}>{l.name} ({l.contact_count})</option>)}
               </select>
             </div>
+            {lists.length > 0 && (
+              <div style={{ margin: '4px 0 12px' }}>
+                <label>Shown on the preference page</label>
+                {lists.map((l) => (
+                  <label className="optline" key={l.id} style={{ margin: '6px 0 0' }}>
+                    <input type="checkbox" checked={l.show_in_prefs !== false} onChange={togglePrefs(l)} /><span>{l.name}</span>
+                  </label>
+                ))}
+              </div>
+            )}
             <div className="row">
               <input placeholder="New list name" value={newList} onChange={(e) => setNewList(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && addList()} />
@@ -149,6 +162,8 @@ export default function Contacts() {
             <textarea rows="5" placeholder="email,first_name,company" value={csv} onChange={(e) => setCsv(e.target.value)} />
             <Btn className="btn sm" style={{ marginTop: 10 }} busyText="Importing..." onClick={importCsv}>Import</Btn>
           </div>
+
+          <ListHealth canManage={canManage} onCleaned={load} />
         </div>
 
         <div className="grid">
@@ -177,7 +192,7 @@ export default function Contacts() {
                 <tbody>
                   {contacts.map((c) => (
                     <tr key={c.id}>
-                      <td data-label="Email"><Link to={`/contacts/${c.id}`}>{c.email}</Link></td>
+                      <td data-label="Email"><Link to={`/contacts/${c.id}`}>{c.email}</Link>{c.role_address && <> <span className="pill gray" title="A shared inbox like info@ or support@">shared</span></>}</td>
                       <td data-label="Name">{[c.first_name, c.last_name].filter(Boolean).join(' ') || '-'}</td>
                       <td data-label="Status"><span className={`pill ${statusClass[c.status] || 'gray'}`}>{c.status}</span></td>
                       <td className="actions">
@@ -207,7 +222,7 @@ export default function Contacts() {
                     {blocked.map((b) => (
                       <tr key={b.id}>
                         <td data-label="Address">{b.email}</td>
-                        <td data-label="Reason"><span className="pill red">{b.reason === 'complained' ? 'reported spam' : 'bounced'}</span></td>
+                        <td data-label="Reason"><span className="pill red">{b.reason === 'complained' ? 'reported spam' : b.reason === 'invalid' ? 'invalid address' : 'bounced'}</span></td>
                         <td data-label="Since">{when(b.created_at)}</td>
                         <td className="actions">{canManage && <Btn className="btn ghost sm" busyText="Unblocking..." onClick={unblockAddress(b)}>Unblock</Btn>}</td>
                       </tr>

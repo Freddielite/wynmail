@@ -9,6 +9,7 @@ import { upsertContact, attachLists } from '../contacts.js';
 import { isEmail, normEmail, cleanName, cleanText, cleanAttrs, senderAllowed } from '../validate.js';
 import { rateLimit } from '../rateLimit.js';
 import { sentToday } from '../usage.js';
+import { assessEmail } from '../hygiene.js';
 
 const router = Router();
 const fail = (res, status, error) => res.status(status).json({ error });
@@ -57,6 +58,8 @@ router.post('/contacts', async (req, res) => {
   const b = req.body || {};
   const email = normEmail(b.email);
   if (!isEmail(email)) return fail(res, 400, '"email" must be a valid email address.');
+  const verdict = await assessEmail(email, req.workspace);
+  if (!verdict.ok) return res.status(400).json({ error: verdict.message, code: verdict.code, ...(verdict.suggestion ? { suggestion: verdict.suggestion } : {}) });
 
   const ids = Array.isArray(b.list_ids) ? b.list_ids.map(Number).filter(Number.isInteger).slice(0, 20) : [];
   if (ids.length) {

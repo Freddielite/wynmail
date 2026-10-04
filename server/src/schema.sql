@@ -320,3 +320,26 @@ CREATE TABLE IF NOT EXISTS segments (
 );
 ALTER TABLE segments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS segment_id INT REFERENCES segments(id) ON DELETE SET NULL;
+
+-- Signup hygiene, warm-up and the preference center.
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS block_disposable BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS block_role BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS check_mx BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS preference_center BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS warmup_enabled BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS warmup_started_at TIMESTAMPTZ;
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS warmup_start_volume INT NOT NULL DEFAULT 50;
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS warmup_growth DOUBLE PRECISION NOT NULL DEFAULT 1.6;
+
+ALTER TABLE lists ADD COLUMN IF NOT EXISTS show_in_prefs BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE contacts ADD COLUMN IF NOT EXISTS paused_until TIMESTAMPTZ;
+ALTER TABLE contacts ADD COLUMN IF NOT EXISTS max_per_week INT;
+
+-- A person who left a list on their preference page. Imports, the API and automations never add them back.
+CREATE TABLE IF NOT EXISTS list_optouts (
+  contact_id INT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+  list_id INT NOT NULL REFERENCES lists(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (contact_id, list_id)
+);
+ALTER TABLE list_optouts ENABLE ROW LEVEL SECURITY;

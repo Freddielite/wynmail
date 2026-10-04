@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { hmac } from './config.js';
+import { htmlToText } from './text.js';
 
 export const newToken = () => crypto.randomBytes(16).toString('hex');
 
@@ -57,6 +58,8 @@ export function buildEmail({ workspace, contact, subject, html, token, preheader
   const hasToken = new RegExp(FOOTER_TOKEN.source, 'i').test(String(html || ''));
   const marked = String(html || '').replace(FOOTER_TOKEN, FOOTER_MARK);
   let body = merge(marked, contact, { html: true });
+  // The plain text part keeps the real link addresses, so it is taken before links are rewritten for tracking.
+  const plain = htmlToText(body);
   body = rewriteLinks(body, base, token);
   const footer = complianceFooter(workspace, base, token);
   if (hasToken) {
@@ -73,7 +76,7 @@ export function buildEmail({ workspace, contact, subject, html, token, preheader
   return {
     subject: merge(subject, contact).replace(/[\r\n]+/g, ' ').slice(0, 300),
     html: `<!doctype html><html><body style="margin:0;padding:24px;background:#f8fafc">${pre}${body}</body></html>`,
-    text: body.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
+    text: `${plain}\n\n--\n${workspace.footer_address || workspace.name || ''}\nUnsubscribe: ${base}/t/u/${token}`.trim(),
     headers: {
       'List-Unsubscribe': `<${base}/t/u/${token}>`,
       'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click'

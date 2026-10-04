@@ -70,3 +70,12 @@
 68. `feat(segments): add saved audience segments with a rule builder, live preview, and campaigns that can target a segment`
 69. `feat(contacts): add a contact profile page with editable tags and custom fields, full email history, consent record, and CSV/API tag support`
 70. `test: add media, analytics and segments test suites`
+71. `feat(hygiene): refuse typos, disposable inboxes, dead domains and optionally shared inboxes on forms, the API, imports and manual adds, with cached DNS lookups that never block on failure`
+72. `feat(contacts): add a list health scan with one-click blocking of addresses that cannot work, and mark shared inboxes`
+73. `feat(precheck): add a pre-send check that scores an email and lists spam, link, merge field, size, DNS and reputation problems, with an optional SSRF-safe link checker`
+74. `feat(web): add Check before sending to Campaigns and ask before sending when the quick check finds real problems`
+75. `feat(email): send a proper plain text part with real link addresses, the postal address and the unsubscribe link`
+76. `feat(warmup): add per-workspace warm-up with a growing daily cap, engaged contacts first and a health hold, plus a status panel in Settings`
+77. `feat(prefs): turn the unsubscribe page into a preference center with topics, weekly limits and pauses, and keep list opt-outs from being undone by imports or the API`
+78. `test: add deliverability unit and integration suites`
+79. `docs: describe deliverability and safety features and refresh the not-yet-built list`

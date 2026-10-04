@@ -104,6 +104,11 @@ export const api = {
   unblockAddress: (id, confirm) => request(ws(`/suppressions/${id}/unblock`), { method: 'POST', body: { confirm } }),
   duplicateCampaign: (id) => request(ws(`/campaigns/${id}/duplicate`), { method: 'POST' }),
   domainCheck: () => request(ws('/domain-check')),
+  precheck: (b) => request(ws('/precheck'), { method: 'POST', body: b }),
+  warmup: () => request(ws('/warmup')),
+  hygiene: () => request(ws('/hygiene')),
+  cleanHygiene: (kinds) => request(ws('/hygiene/clean'), { method: 'POST', body: { kinds } }),
+  setListPrefs: (id, show) => request(ws(`/lists/${id}`), { method: 'PUT', body: { show_in_prefs: show } }),
   exportContacts: () => download(ws('/contacts/export'), 'contacts.csv'),
   exportCampaign: (id) => download(ws(`/campaigns/${id}/export`), `campaign-${id}-report.csv`),
 

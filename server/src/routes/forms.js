@@ -14,6 +14,7 @@ import { trackingBase } from '../render.js';
 import { actionEmail } from '../sysmail.js';
 import { hashKey } from '../apikeys.js';
 import { formPage, messagePage, esc } from '../pages.js';
+import { assessEmail } from '../hygiene.js';
 
 const router = Router();
 const urlencoded = express.urlencoded({ extended: false, limit: '20kb' });
@@ -65,6 +66,13 @@ router.post('/f/:slug/subscribe', publicCors, perIp, urlencoded, perEmail, async
     if (!sig || !safeEqual(sig, hmac(`form:${f.slug}:${ts}`).slice(0, 24))) silent = true;
     else if (age < 2000) return fail(400, 'That was quick. Please wait a moment and submit again.');
     else if (age > 24 * 3600 * 1000) return fail(400, 'This page has expired. Reload it and try again.');
+  }
+
+  // Typos, throwaway inboxes and addresses that cannot receive mail are turned away with a helpful message.
+  if (!silent) {
+    const policy = await one(`SELECT block_disposable, block_role, check_mx FROM workspaces WHERE id = $1`, [f.workspace_id]);
+    const verdict = await assessEmail(email, policy || {});
+    if (!verdict.ok) return fail(400, verdict.message);
   }
 
   const ok = () => {
