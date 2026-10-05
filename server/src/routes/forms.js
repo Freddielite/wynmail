@@ -6,6 +6,7 @@ import { hmac, safeEqual, decrypt } from '../config.js';
 import { rateLimit } from '../rateLimit.js';
 import { isEmail, normEmail, cleanName, senderAllowed } from '../validate.js';
 import { upsertContact } from '../contacts.js';
+import { cleanTz } from '../timeutil.js';
 import { enroll } from '../automations.js';
 import { getProvider } from '../providers/index.js';
 import { throttled } from '../throttle.js';
@@ -86,7 +87,7 @@ router.post('/f/:slug/subscribe', publicCors, perIp, urlencoded, perEmail, async
   // Answer first, work after: the response is identical whether or not the address is already known.
   processSignup(f, {
     email, first_name: cleanName(b.first_name, 60) || null, last_name: cleanName(b.last_name, 60) || null,
-    ip: String(req.ip || '').slice(0, 64), ua: String(req.headers['user-agent'] || '').slice(0, 200)
+    ip: String(req.ip || '').slice(0, 64), ua: String(req.headers['user-agent'] || '').slice(0, 200), tz: cleanTz(b.tz)
   }).catch((err) => console.error('[forms]', err.message));
 });
 
@@ -105,9 +106,9 @@ async function processSignup(f, s) {
   const needsConfirm = f.double_optin || existing?.status === 'unsubscribed';
   if (!needsConfirm) {
     const row = await one(
-      `INSERT INTO form_signups (workspace_id, form_id, email, first_name, last_name, consent_text, ip, user_agent, confirmed_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now()) RETURNING *`,
-      [ws.id, f.id, s.email, s.first_name, s.last_name, f.consent_text, s.ip, s.ua]);
+      `INSERT INTO form_signups (workspace_id, form_id, email, first_name, last_name, consent_text, ip, user_agent, tz, confirmed_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now()) RETURNING *`,
+      [ws.id, f.id, s.email, s.first_name, s.last_name, f.consent_text, s.ip, s.ua, s.tz]);
     await finalize(row, f);
     return;
   }
@@ -116,9 +117,9 @@ async function processSignup(f, s) {
 
   const token = crypto.randomBytes(32).toString('base64url');
   const row = await one(
-    `INSERT INTO form_signups (workspace_id, form_id, email, first_name, last_name, token_hash, consent_text, ip, user_agent, expires_at, email_status)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now() + interval '48 hours', 'queued') RETURNING id`,
-    [ws.id, f.id, s.email, s.first_name, s.last_name, hashKey(token), f.consent_text, s.ip, s.ua]);
+    `INSERT INTO form_signups (workspace_id, form_id, email, first_name, last_name, token_hash, consent_text, ip, user_agent, tz, expires_at, email_status)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now() + interval '48 hours', 'queued') RETURNING id`,
+    [ws.id, f.id, s.email, s.first_name, s.last_name, hashKey(token), f.consent_text, s.ip, s.ua, s.tz]);
   try {
     await sendConfirmation(f, ws, s.email, token);
     await query(`UPDATE form_signups SET email_status = 'sent' WHERE id = $1`, [row.id]);
@@ -154,7 +155,7 @@ async function sendConfirmation(f, ws, email, token) {
 // Turns a confirmed signup into a subscribed contact with a consent record.
 async function finalize(s, f) {
   const before = await one(`SELECT status FROM contacts WHERE workspace_id = $1 AND email = $2`, [s.workspace_id, s.email]);
-  const contact = await upsertContact(s.workspace_id, { email: s.email, first_name: s.first_name, last_name: s.last_name, consent_source: `form:${f.slug}` }, f.list_id, { source: 'form' });
+  const contact = await upsertContact(s.workspace_id, { email: s.email, first_name: s.first_name, last_name: s.last_name, timezone: s.tz, consent_source: `form:${f.slug}` }, f.list_id, { source: 'form' });
   if (before?.status === 'unsubscribed') {
     await query(
       `UPDATE contacts SET status = 'subscribed', unsubscribed_at = NULL, consent_source = $3, consent_at = now(),

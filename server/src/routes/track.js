@@ -7,6 +7,8 @@ import express from 'express';
 import { rateLimit } from '../rateLimit.js';
 import { prefsPage } from '../pages.js';
 import { attachLists } from '../contacts.js';
+import { enrollClick } from '../automations.js';
+import { cleanText } from '../validate.js';
 
 const router = Router();
 const PIXEL = Buffer.from(
@@ -43,6 +45,8 @@ router.get('/c/:token', async (req, res) => {
   if (message && ua.device !== 'bot' && !tooFast) {
     await query(`UPDATE messages SET click_count = click_count + 1, clicked_at = COALESCE(clicked_at, now()) WHERE id = $1`, [message.id]);
     await query(`INSERT INTO events (workspace_id, message_id, type, url, meta) VALUES ($1, $2, 'click', $3, $4::jsonb)`, [message.workspace_id, message.id, url, JSON.stringify({ device: ua.device })]);
+    // A real click can start an automation. It never holds up the visitor.
+    enrollClick(message.workspace_id, message.contact_id, url).catch((e) => console.error('[automations] click trigger', e.message));
   }
   res.redirect(302, url);
 });
@@ -130,11 +134,41 @@ router.post('/p/:token', prefsLimit, form, async (req, res) => {
   res.redirect(303, `/t/u/${req.params.token}?done=${done}`);
 });
 
+export const REASONS = {
+  too_many: 'I get too many emails',
+  not_relevant: 'The emails are not relevant to me',
+  never_signed_up: 'I never signed up for these',
+  not_useful: 'The content is not useful',
+  no_longer: 'I am no longer interested',
+  other: 'Something else'
+};
+
+const surveyForm = (token) => `<p style="margin:0 0 16px;color:#475569">You will not receive further emails from this sender.</p>
+<form method="post" action="/t/r/${token}" style="text-align:left;margin-top:8px">
+<p style="margin:0 0 8px;font-weight:600;font-size:15px">Why are you leaving? (optional)</p>
+${Object.entries(REASONS).map(([k, v]) => `<label style="display:flex;gap:10px;align-items:flex-start;margin:0 0 8px;font-size:15px;cursor:pointer"><input type="radio" name="reason" value="${k}" style="margin-top:5px"><span>${v}</span></label>`).join('')}
+<textarea name="comment" maxlength="300" rows="3" placeholder="Anything you want to add" style="width:100%;box-sizing:border-box;margin:6px 0 12px;padding:10px;border:1px solid #cbd5e1;border-radius:10px;font:inherit"></textarea>
+<button type="submit" style="border:0;cursor:pointer;font:600 15px system-ui;padding:11px 24px;border-radius:999px;color:#fff;background:linear-gradient(135deg,#0b2a5b,#2f80ed)">Send feedback</button></form>`;
+
 router.post('/u/:token', async (req, res) => {
   const message = await unsubscribe(req.params.token);
   res.set('Content-Type', 'text/html').send(message
-    ? page('You are unsubscribed', '<p style="margin:0;color:#475569">You will not receive further emails from this sender.</p>')
+    ? page('You are unsubscribed', surveyForm(req.params.token))
     : page('Link not recognised', '<p style="margin:0;color:#475569">This unsubscribe link is invalid or expired.</p>'));
+});
+
+// The survey. Only someone who has really unsubscribed through this email can answer, once.
+router.post('/r/:token', prefsLimit, form, async (req, res) => {
+  const message = await findMessage(req.params.token);
+  const ok = message && message.unsubscribed_at;
+  const reason = String(req.body?.reason || '');
+  if (!ok) return res.status(400).set('Content-Type', 'text/html').send(page('Link not recognised', '<p style="margin:0;color:#475569">This link is invalid or expired.</p>'));
+  if (Object.hasOwn(REASONS, reason)) {
+    await query(
+      `INSERT INTO unsub_reasons (workspace_id, contact_id, message_id, reason, comment) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (message_id) DO NOTHING`,
+      [message.workspace_id, message.contact_id, message.id, reason, cleanText(req.body?.comment, 300) || null]);
+  }
+  res.set('Content-Type', 'text/html').send(page('Thank you', '<p style="margin:0;color:#475569">Your answer helps this sender improve. You are unsubscribed.</p>'));
 });
 
 export default router;

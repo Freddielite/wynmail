@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { Btn, CopyBtn, useGuard } from '../ui.jsx';
 import Warmup from './Warmup.jsx';
+import { TIMEZONES } from '../timezones.js';
 
 export default function Settings({ admin }) {
   const guard = useGuard();
@@ -22,7 +23,7 @@ export default function Settings({ admin }) {
   const save = guard(async () => {
     const body = {
       name: form.name || '', from_name: form.from_name || '', from_email: form.from_email || '', reply_to: form.reply_to || '',
-      footer_address: form.footer_address || '', tracking_domain: form.tracking_domain || '',
+      footer_address: form.footer_address || '', tracking_domain: form.tracking_domain || '', default_timezone: form.default_timezone || 'Africa/Lagos',
       block_disposable: !!form.block_disposable, block_role: !!form.block_role, check_mx: !!form.check_mx, preference_center: !!form.preference_center
     };
     if (admin) {
@@ -60,6 +61,11 @@ export default function Settings({ admin }) {
           <div className="field"><label>From email (must use the sending domain)</label><input value={form.from_email || ''} onChange={set('from_email')} /></div>
           <div className="field"><label>Reply to</label><input value={form.reply_to || ''} onChange={set('reply_to')} /></div>
           <div className="field"><label>Footer postal address</label><input value={form.footer_address || ''} onChange={set('footer_address')} /></div>
+          <div className="field"><label>Time zone</label>
+            <input list="tz-list" value={form.default_timezone || ''} onChange={set('default_timezone')} placeholder="Africa/Lagos" />
+            <datalist id="tz-list">{TIMEZONES.map((z) => <option key={z} value={z} />)}</datalist>
+            <div className="muted" style={{ marginTop: 4 }}>Used for contacts with no time zone of their own, and to decide which day a birthday or renewal falls on.</div>
+          </div>
           {saveBtn}
         </div>
 

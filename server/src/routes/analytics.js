@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { many, one } from '../db.js';
+import { REASONS } from './track.js';
 
 const router = Router({ mergeParams: true });
 const wid = (req) => req.workspace.id;
@@ -59,6 +60,22 @@ router.get('/overview', async (req, res) => {
   )).map((r) => ({ id: r.id, name: r.name, subject: r.subject, when: r.finished_at || r.started_at, ...summary(r) }));
 
   res.json({ days, totals: summary(totals), series, opens_grid: grid, campaigns });
+});
+
+// Why people leave, from the short survey shown after unsubscribing. Answers are optional, so the
+// totals show how many people answered out of how many left.
+router.get('/unsubscribe-reasons', async (req, res) => {
+  const days = num(req.query.days, 1, 365, 30);
+  const left = (await one(`SELECT count(*)::int AS n FROM events WHERE workspace_id = $1 AND type = 'unsubscribe' AND created_at > now() - interval '1 day' * $2`, [wid(req), days])).n;
+  const rows = await many(`SELECT reason, count(*)::int AS n FROM unsub_reasons WHERE workspace_id = $1 AND created_at > now() - interval '1 day' * $2 GROUP BY reason ORDER BY n DESC`, [wid(req), days]);
+  const comments = await many(`SELECT reason, comment, created_at FROM unsub_reasons WHERE workspace_id = $1 AND comment IS NOT NULL AND created_at > now() - interval '1 day' * $2 ORDER BY id DESC LIMIT 8`, [wid(req), days]);
+  const answered = rows.reduce((a, r) => a + r.n, 0);
+  res.json({
+    days, unsubscribed: left, answered,
+    reasons: rows.map((r) => ({ reason: r.reason, label: REASONS[r.reason] || r.reason, count: r.n })),
+    never_signed_up: rows.find((r) => r.reason === 'never_signed_up')?.n || 0,
+    comments: comments.map((c) => ({ label: REASONS[c.reason] || c.reason, comment: c.comment, created_at: c.created_at }))
+  });
 });
 
 router.get('/campaigns/:id', async (req, res) => {

@@ -1,24 +1,30 @@
 import { many, one, query } from './db.js';
-import { enroll } from './automations.js';
+import { enroll, enrollTags } from './automations.js';
+import { cleanTz } from './timeutil.js';
 import { normEmail, cleanName, cleanAttrs, cleanTags } from './validate.js';
 
 // Existing unsubscribed contacts stay unsubscribed. Only names and attributes are updated.
 export async function upsertContact(workspaceId, body, listId, opts = {}) {
   const attrs = cleanAttrs(body.attributes);
+  const before = await one(`SELECT tags FROM contacts WHERE workspace_id = $1 AND email = $2`, [workspaceId, normEmail(body.email)]);
   const contact = await one(
-    `INSERT INTO contacts (workspace_id, email, first_name, last_name, attributes, consent_source, consent_at, tags, status)
-     VALUES ($1, $2, $3, $4, COALESCE($5::jsonb, '{}'::jsonb), $6, now(), $7::text[],
+    `INSERT INTO contacts (workspace_id, email, first_name, last_name, attributes, consent_source, consent_at, tags, timezone, status)
+     VALUES ($1, $2, $3, $4, COALESCE($5::jsonb, '{}'::jsonb), $6, now(), $7::text[], $8,
        COALESCE((SELECT CASE s.reason WHEN 'complained' THEN 'complained' ELSE 'bounced' END
                  FROM suppressions s WHERE s.workspace_id = $1 AND s.email = $2), 'subscribed'))
      ON CONFLICT (workspace_id, email) DO UPDATE SET
        first_name = COALESCE(EXCLUDED.first_name, contacts.first_name),
        last_name = COALESCE(EXCLUDED.last_name, contacts.last_name),
        attributes = contacts.attributes || EXCLUDED.attributes,
-       tags = ARRAY(SELECT DISTINCT unnest(contacts.tags || EXCLUDED.tags))
+       tags = ARRAY(SELECT DISTINCT unnest(contacts.tags || EXCLUDED.tags)),
+       timezone = COALESCE(EXCLUDED.timezone, contacts.timezone)
      RETURNING *`,
     [workspaceId, normEmail(body.email), cleanName(body.first_name) || null, cleanName(body.last_name) || null,
-     attrs ? JSON.stringify(attrs) : null, body.consent_source || 'manual', cleanTags(body.tags)]
+     attrs ? JSON.stringify(attrs) : null, body.consent_source || 'manual', cleanTags(body.tags), cleanTz(body.timezone)]
   );
+  // Tags that are new to this person can start an automation.
+  const had = new Set(before?.tags || []);
+  await enrollTags(workspaceId, contact.id, (contact.tags || []).filter((t) => !had.has(t)), opts.source || 'manual');
   if (listId) await attachLists(workspaceId, contact.id, [listId], opts);
   return contact;
 }

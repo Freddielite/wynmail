@@ -166,6 +166,26 @@ A client with their own Resend account adds a webhook to `https://<your-render-u
 
 Every email now carries a proper plain text part with real link addresses, the postal address and the unsubscribe link.
 
+## Campaign results
+
+**A/B subject test.** Tick "Test two subject lines" on a campaign, write subject B, and pick the test group (10 to 50 percent of the audience), the measure (opens or clicks) and how long to wait (1 to 48 hours). A random test group is split evenly between the two subjects, everyone else is held back. When both halves are sent and the waiting time has passed, the better subject goes to the rest. A tie goes to subject A. It needs at least 20 people, and at least 5 per version. The report shows both versions and the winner. Opens include privacy proxies, so clicks are the more honest measure for Apple Mail readers. Set `AB_HOUR_MS` to shorten an "hour" in tests.
+
+**Resend to non-openers.** A finished campaign has a button to resend it, once, with a new subject, to everyone who got it and did not open, click, bounce, complain or unsubscribe.
+
+**Best time.** "At each person's best time" gives each person the hour (UTC) they usually open in, from their own opens in the last 180 days (at least three needed, privacy proxy opens ignored). People with too little history get the hour most of the workspace opens in. Sending starts straight away and takes up to 24 hours. `BESTTIME_JITTER_MIN` (default 50) spreads people inside their hour.
+
+**Time zone sending.** "At a set time in each person's own time zone" sends at that clock time wherever each person lives. Zones come from a `timezone` column in a CSV, the contact profile, the API (`timezone`), or the visitor's browser on a hosted signup form. People with no zone use the workspace zone in Settings (default Africa/Lagos). The campaign starts when the earliest zone (UTC+14) reaches the time. A test cannot be combined with best time or time zone sending.
+
+**Why people unsubscribe.** After clicking Unsubscribe, people are asked why (optional, no scripts). Analytics shows the breakdown and what they wrote. "Never signed up" answers are called out, because they predict spam complaints.
+
+## Automations
+
+Beyond "someone joins a list", an automation can start when someone **gets a tag** (by hand, import, API, or another automation), **clicks a link** (part of the address is enough, scanner clicks are ignored), or when a **date on their record arrives** (a contact field written 2026-12-31, with days before or after, optionally every year). Each person goes through once, or once a year for yearly dates. Date triggers are checked once a day in the workspace time zone and catch up on up to a week of missed days.
+
+Steps can be emails, **checks**, or **tag steps**. A check looks at whether the person opened or clicked an email, clicked a link containing some text, has a tag, is on a list, or has a field equal to a value. Each outcome can carry on, stop, or skip ahead to a later step. Paths only go forward, so nothing can loop. Emails and tag steps can also skip ahead or stop.
+
+An **exit goal** (a tag, a list, or a link click) stops the sequence for anyone who reaches it, checked before every step. Automation stats count how many reached the goal.
+
 ## Security model
 
 - Signup is closed after the first account. That account becomes the admin (set `ADMIN_EMAIL` so only you can claim it). Admins create client workspaces on the Clients page.
@@ -201,6 +221,5 @@ Push the repo to GitHub, then:
 ## Not yet built
 
 - Billing and plan limits
-- A/B subject tests and send-time optimisation
 - Outbound webhooks to clients
 - Roles beyond owner and admin

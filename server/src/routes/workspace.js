@@ -28,6 +28,8 @@ import { analyze, score, domainItems, reputationItems, mergeGapItems, mergeField
 import { probe } from '../safefetch.js';
 import { campaignLimit } from '../usage.js';
 import { capForDay, schedule, daysToSend, warmupDay } from '../warmup.js';
+import { abStats, abPlan, AB_MIN_AUDIENCE } from '../abtest.js';
+import { cleanTz, earliestInstant, LOCAL_RE } from '../timeutil.js';
 import automationsAdmin from './automationsAdmin.js';
 import { isEmail, normEmail, DOMAIN_RE, TRACKING_RE, cleanName, cleanText, cleanAttrs, senderAllowed, readDesign } from '../validate.js';
 
@@ -121,6 +123,12 @@ router.put('/', async (req, res) => {
     }
   }
 
+  let tzone = null;
+  if (owner && f.default_timezone !== undefined) {
+    tzone = cleanTz(f.default_timezone);
+    if (!tzone) return bad(res, 'That is not a time zone name. Use a name like Africa/Lagos');
+  }
+
   const newKey = typeof f.provider_api_key === 'string' && f.provider_api_key.trim() ? encrypt(f.provider_api_key.trim()) : null;
   const newHook = typeof f.webhook_secret === 'string' && f.webhook_secret.trim() ? encrypt(f.webhook_secret.trim()) : null;
 
@@ -137,13 +145,14 @@ router.put('/', async (req, res) => {
        check_mx = COALESCE($18::boolean, check_mx), preference_center = COALESCE($19::boolean, preference_center),
        warmup_enabled = COALESCE($20::boolean, warmup_enabled), warmup_start_volume = COALESCE($21::int, warmup_start_volume),
        warmup_growth = COALESCE($22::float8, warmup_growth),
+       default_timezone = COALESCE($24, default_timezone),
        warmup_started_at = CASE WHEN $23::boolean THEN now() WHEN $20::boolean IS TRUE AND warmup_started_at IS NULL THEN now() ELSE warmup_started_at END
      WHERE id = $1 RETURNING *`,
     [ws(req), v.name, v.sending_domain, v.from_name, v.from_email, v.reply_to, v.tracking_domain,
      v.footer_address, v.rate_per_minute, v.daily_limit, v.provider, newKey, f.clear_provider_key === true,
      newHook, f.clear_webhook_secret === true,
      flag('block_disposable'), flag('block_role'), flag('check_mx'), flag('preference_center'),
-     warmEnabled, warmVolume, warmGrowth, admin && f.warmup_restart === true]
+     warmEnabled, warmVolume, warmGrowth, admin && f.warmup_restart === true, tzone]
   );
   res.json(publicWorkspace(row));
 });
@@ -281,10 +290,44 @@ router.get('/campaigns', async (req, res) => {
        (SELECT count(*)::int FROM messages m WHERE m.campaign_id = c.id AND m.clicked_at IS NOT NULL) AS clicked,
        (SELECT count(*)::int FROM messages m WHERE m.campaign_id = c.id AND m.bounced_at IS NOT NULL) AS bounced,
        (SELECT count(*)::int FROM messages m WHERE m.campaign_id = c.id AND m.complained_at IS NOT NULL) AS complained,
-       (SELECT count(*)::int FROM messages m WHERE m.campaign_id = c.id AND m.delivered_at IS NOT NULL) AS delivered
+       (SELECT count(*)::int FROM messages m WHERE m.campaign_id = c.id AND m.delivered_at IS NOT NULL) AS delivered,
+       (SELECT count(*)::int FROM messages m WHERE m.campaign_id = c.id AND m.status = 'held') AS held,
+       (SELECT count(*)::int FROM messages m WHERE m.campaign_id = c.id AND m.status = 'queued' AND m.send_after > now()) AS timed_waiting,
+       (SELECT count(*)::int FROM messages m WHERE m.campaign_id = c.id AND m.status = 'sent' AND m.opened_at IS NULL AND m.clicked_at IS NULL
+          AND m.bounced_at IS NULL AND m.complained_at IS NULL AND m.unsubscribed_at IS NULL) AS non_openers,
+       EXISTS (SELECT 1 FROM campaigns r WHERE r.resend_of = c.id) AS resent,
+       (SELECT o.name FROM campaigns o WHERE o.id = c.resend_of) AS resend_of_name
      FROM campaigns c LEFT JOIN lists l ON l.id = c.list_id LEFT JOIN segments sg ON sg.id = c.segment_id
      WHERE c.workspace_id = $1 ORDER BY c.id DESC`, [ws(req)]));
 });
+
+const AB_WAITS = [1, 2, 4, 8, 24, 48];
+
+// A/B test, delivery timing and the schedule. Returns the columns to store, or an error to show.
+function readCampaignOptions(b, subj, when) {
+  const o = { subject_b: null, ab_percent: null, ab_wait_hours: null, ab_metric: null, best_time: false, local_time: false, local_at: null, when };
+  const sb = cleanText(b.subject_b, 300);
+  if (sb) {
+    if (sb.toLowerCase() === subj.toLowerCase()) return { error: 'Subject B is the same as subject A. Write a different one to test.' };
+    const pct = Number(b.ab_percent ?? 20), wait = Number(b.ab_wait_hours ?? 4);
+    if (!Number.isInteger(pct) || pct < 10 || pct > 50) return { error: 'The test group must be between 10% and 50% of your audience' };
+    if (!AB_WAITS.includes(wait)) return { error: 'Choose how long to wait before picking a winner: 1, 2, 4, 8, 24 or 48 hours' };
+    Object.assign(o, { subject_b: sb, ab_percent: pct, ab_wait_hours: wait, ab_metric: b.ab_metric === 'clicks' ? 'clicks' : 'opens' });
+  }
+  o.best_time = b.best_time === true;
+  o.local_time = b.local_time === true;
+  if (o.best_time && o.local_time) return { error: 'Choose either best time or local time delivery, not both' };
+  if (sb && (o.best_time || o.local_time)) return { error: 'An A/B test sends straight away. Turn off best time or local time delivery to run a test' };
+  if (o.local_time) {
+    const at = String(b.local_at || '');
+    const first = LOCAL_RE.test(at) ? earliestInstant(at) : null;
+    if (!first) return { error: 'Pick the date and time to send at in each person\'s own time zone' };
+    if (first.getTime() < Date.now() + 60000) return { error: 'Pick a time in the future' };
+    o.local_at = at;
+    o.when = first;   // The queue starts when the first time zone reaches that time. Everyone else waits for theirs.
+  }
+  return { value: o };
+}
 
 router.post('/campaigns', async (req, res) => {
   const { name, subject, html, list_id, segment_id, scheduled_at, preview_text } = req.body || {};
@@ -298,10 +341,15 @@ router.post('/campaigns', async (req, res) => {
   if (when && Number.isNaN(when.getTime())) return bad(res, 'invalid schedule time');
   const dz = readDesign(req.body?.design);
   if (dz.error) return bad(res, dz.error);
+  const opt = readCampaignOptions(req.body || {}, subj, when);
+  if (opt.error) return bad(res, opt.error);
+  const o = opt.value;
   res.json(await one(
-    `INSERT INTO campaigns (workspace_id, name, subject, html, list_id, scheduled_at, status, preview_text, design, segment_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10) RETURNING *`,
-    [ws(req), cleanName(name) || subj, subj, String(html || '').slice(0, MAX_HTML), lst, when, when ? 'scheduled' : 'draft', cleanText(preview_text, 150), dz.value, seg]
+    `INSERT INTO campaigns (workspace_id, name, subject, html, list_id, scheduled_at, status, preview_text, design, segment_id,
+       subject_b, ab_percent, ab_wait_hours, ab_metric, best_time, local_time, local_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING *`,
+    [ws(req), cleanName(name) || subj, subj, String(html || '').slice(0, MAX_HTML), lst, o.when, o.when ? 'scheduled' : 'draft', cleanText(preview_text, 150), dz.value, seg,
+     o.subject_b, o.ab_percent, o.ab_wait_hours, o.ab_metric, o.best_time, o.local_time, o.local_at]
   ));
 });
 
@@ -317,16 +365,23 @@ router.put('/campaigns/:id', async (req, res) => {
   if (when && Number.isNaN(when.getTime())) return bad(res, 'invalid schedule time');
   const dz = readDesign(req.body?.design);
   if (dz.error) return bad(res, dz.error);
+  const current = await one(`SELECT subject FROM campaigns WHERE id = $1 AND workspace_id = $2`, [req.params.id, ws(req)]);
+  if (!current) return res.status(404).json({ error: 'not found or already sent' });
+  const opt = readCampaignOptions(req.body || {}, subject === undefined ? current.subject : cleanText(subject, 300), when);
+  if (opt.error) return bad(res, opt.error);
+  const o = opt.value;
   const row = await one(
     `UPDATE campaigns SET name = COALESCE($3, name), subject = COALESCE($4, subject),
        html = COALESCE($5, html), list_id = CASE WHEN $11::boolean THEN $6 ELSE list_id END, segment_id = CASE WHEN $11::boolean THEN $12 ELSE segment_id END, scheduled_at = $7,
        preview_text = COALESCE($8, preview_text),
        design = CASE WHEN $9::boolean THEN $10::jsonb ELSE design END,
-       status = CASE WHEN $7::timestamptz IS NOT NULL THEN 'scheduled' ELSE 'draft' END
+       status = CASE WHEN $7::timestamptz IS NOT NULL THEN 'scheduled' ELSE 'draft' END,
+       subject_b = $13, ab_percent = $14, ab_wait_hours = $15, ab_metric = $16, best_time = $17, local_time = $18, local_at = $19
      WHERE id = $1 AND workspace_id = $2 AND status IN ('draft','scheduled') RETURNING *`,
     [req.params.id, ws(req), name === undefined ? null : cleanName(name),
      subject === undefined ? null : cleanText(subject, 300), html === undefined ? null : String(html).slice(0, MAX_HTML),
-     lst, when, preview_text === undefined ? null : cleanText(preview_text, 150), dz.set, dz.value, audienceGiven, seg]
+     lst, o.when, preview_text === undefined ? null : cleanText(preview_text, 150), dz.set, dz.value, audienceGiven, seg,
+     o.subject_b, o.ab_percent, o.ab_wait_hours, o.ab_metric, o.best_time, o.local_time, o.local_at]
   );
   if (!row) return res.status(404).json({ error: 'not found or already sent' });
   res.json(row);
@@ -363,7 +418,7 @@ router.get('/campaigns/:id/preview', async (req, res) => {
 
 router.get('/campaigns/:id/messages', async (req, res) => {
   res.json(await many(
-    `SELECT id, email, token, provider_id, status, sent_at, delivered_at, bounced_at, bounce_type, complained_at, opened_at, clicked_at, open_count, click_count, error
+    `SELECT id, email, token, provider_id, status, sent_at, delivered_at, bounced_at, bounce_type, complained_at, opened_at, clicked_at, open_count, click_count, error, variant, ab_test, send_after
      FROM messages WHERE campaign_id = $1 AND workspace_id = $2 ORDER BY id DESC LIMIT 500`,
     [req.params.id, ws(req)]));
 });
@@ -571,12 +626,58 @@ router.get('/campaigns/:id/export', exportLimit, async (req, res) => {
   ]);
 });
 
+// Sends the same email again, with a new subject, to people who got the first one and did nothing.
+router.post('/campaigns/:id/resend', async (req, res) => {
+  const c = await one(`SELECT * FROM campaigns WHERE id = $1 AND workspace_id = $2`, [req.params.id, ws(req)]);
+  if (!c) return res.status(404).json({ error: 'not found' });
+  if (c.status !== 'sent') return bad(res, 'You can resend once the first send has finished');
+  if (await one(`SELECT 1 FROM campaigns WHERE resend_of = $1`, [c.id])) return bad(res, 'This campaign has already been resent. Once is enough');
+  const subject = cleanText(req.body?.subject, 300);
+  if (!subject) return bad(res, 'Write a new subject for the resend');
+  if (subject.toLowerCase() === c.subject.toLowerCase() || subject.toLowerCase() === String(c.subject_b || '').toLowerCase()) {
+    return bad(res, 'Use a different subject. People who skipped the first one will skip the same subject again');
+  }
+  if (!senderAllowed(req.workspace)) return bad(res, 'sender not approved: an admin must set your sending domain, and your from email must use it');
+  if (!req.workspace.footer_address) return bad(res, 'add a footer postal address in settings first');
+  const row = await one(
+    `INSERT INTO campaigns (workspace_id, name, subject, html, list_id, preview_text, status, design, segment_id, resend_of)
+     VALUES ($1, $2, $3, $4, $5, $6, 'draft', $7::jsonb, $8, $9) RETURNING id`,
+    [ws(req), cleanName(`Resend: ${c.name}`, 100), subject, c.html, c.list_id, c.preview_text, c.design ? JSON.stringify(c.design) : null, c.segment_id, c.id]);
+  try {
+    res.json({ id: row.id, queued: await enqueueCampaign(row.id) });
+  } catch (err) {
+    await query(`DELETE FROM campaigns WHERE id = $1`, [row.id]);
+    bad(res, err.message);
+  }
+});
+
+// How an A/B test is going: each version's numbers, and the winner once there is one.
+router.get('/campaigns/:id/ab', async (req, res) => {
+  const c = await one(`SELECT * FROM campaigns WHERE id = $1 AND workspace_id = $2`, [req.params.id, ws(req)]);
+  if (!c) return res.status(404).json({ error: 'not found' });
+  if (!c.subject_b || !c.ab_percent) return res.json({ enabled: false });
+  const stats = await abStats(c.id);
+  const rate = (n, d) => (d ? Math.round((n / d) * 1000) / 10 : 0);
+  const view = (v) => ({ ...v, open_rate: rate(v.opens, v.sent), click_rate: rate(v.clicks, v.sent) });
+  const t = await one(`SELECT count(*)::int AS test, count(*) FILTER (WHERE status IN ('queued','sending'))::int AS pending, max(sent_at) AS last_sent FROM messages WHERE campaign_id = $1 AND ab_test`, [c.id]);
+  const held = (await one(`SELECT count(*)::int AS n FROM messages WHERE campaign_id = $1 AND status = 'held'`, [c.id])).n;
+  const state = c.ab_decided_at ? 'decided' : ['draft', 'scheduled'].includes(c.status) ? 'not_started' : 'testing';
+  res.json({
+    enabled: true, state, subject_a: c.subject, subject_b: c.subject_b, percent: c.ab_percent, wait_hours: c.ab_wait_hours, metric: c.ab_metric,
+    winner: c.ab_winner, tie: !!c.ab_result?.tie, decided_at: c.ab_decided_at, test_size: t.test, still_sending: t.pending, waiting: held,
+    decides_at: !c.ab_decided_at && t.test && !t.pending && t.last_sent ? new Date(new Date(t.last_sent).getTime() + c.ab_wait_hours * 3600000).toISOString() : null,
+    A: view(stats.A), B: view(stats.B)
+  });
+});
+
 router.post('/campaigns/:id/duplicate', async (req, res) => {
   const c = await one(`SELECT * FROM campaigns WHERE id = $1 AND workspace_id = $2`, [req.params.id, ws(req)]);
   if (!c) return res.status(404).json({ error: 'not found' });
   res.json(await one(
-    `INSERT INTO campaigns (workspace_id, name, subject, html, list_id, preview_text, status, design, segment_id) VALUES ($1, $2, $3, $4, $5, $6, 'draft', $7::jsonb, $8) RETURNING *`,
-    [ws(req), cleanName(`Copy of ${c.name}`, 100), c.subject, c.html, c.list_id, c.preview_text, c.design ? JSON.stringify(c.design) : null, c.segment_id]));
+    `INSERT INTO campaigns (workspace_id, name, subject, html, list_id, preview_text, status, design, segment_id, subject_b, ab_percent, ab_wait_hours, ab_metric, best_time)
+     VALUES ($1, $2, $3, $4, $5, $6, 'draft', $7::jsonb, $8, $9, $10, $11, $12, $13) RETURNING *`,
+    [ws(req), cleanName(`Copy of ${c.name}`, 100), c.subject, c.html, c.list_id, c.preview_text, c.design ? JSON.stringify(c.design) : null, c.segment_id,
+     c.subject_b, c.ab_percent, c.ab_wait_hours, c.ab_metric, c.best_time]));
 });
 
 /* ---------- domain check ---------- */
@@ -678,6 +779,15 @@ router.post('/precheck', checkLimit, (req, res, next) => (req.body?.deep === tru
     wantLinks ? runProbes(uniqueWebLinks(html)) : null
   ]);
 
+  // The second subject of an A/B test gets the same subject checks.
+  const subjectB = cleanText(b.subject_b, 300);
+  if (subjectB) {
+    for (const i of analyze({ subject: subjectB, html, workspace: w }).filter((x) => x.id.startsWith('subject_') && x.level !== 'pass')) {
+      items.push({ ...i, id: `b_${i.id}`, title: `Subject B: ${i.title.charAt(0).toLowerCase()}${i.title.slice(1)}` });
+    }
+  }
+  if (b.best_time === true) items.push({ id: 'timing_best', level: 'info', title: 'Delivered at each person\'s best time', detail: 'Each person gets this in the hour they usually open email. People with no history get the hour most of your list opens in. Sending can take up to 24 hours.' });
+  if (b.local_time === true) items.push({ id: 'timing_local', level: 'info', title: 'Delivered at the chosen time in each person\'s time zone', detail: 'People with no time zone saved use your workspace time zone. Sending can take up to a day as each zone reaches that time.' });
   if (dns) items.push(...domainItems(dns));
   items.push(...reputationItems(rep));
   if (probes) items.push(...linkItems(probes));
@@ -698,6 +808,12 @@ router.post('/precheck', checkLimit, (req, res, next) => (req.body?.deep === tru
         gaps.push({ key: u.key, hasFallback: u.hasFallback, ...row });
       }
       items.push(...mergeGapItems(gaps));
+      if (subjectB && aud.total < AB_MIN_AUDIENCE) {
+        items.push({ id: 'ab_audience', level: 'fail', title: `An A/B test needs at least ${AB_MIN_AUDIENCE} people`, detail: `This audience has ${aud.total}. Turn the test off or choose a bigger audience.` });
+      } else if (subjectB) {
+        const plan = abPlan(aud.total, Number(b.ab_percent) || 20);
+        items.push({ id: 'ab_plan', level: 'info', title: `${plan.per} people get each subject, then ${plan.rest} get the winner`, detail: 'The winner is picked after the waiting time you chose.' });
+      }
 
       const lim = await campaignLimit(w);
       const left = Math.max(0, lim.limit - (await sentToday(w.id)));

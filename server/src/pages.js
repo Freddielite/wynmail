@@ -36,7 +36,7 @@ input:focus{outline:2px solid rgba(47,128,237,.35);border-color:#2f80ed}
 ${names}
 <div class="field"><label for="em">Email address</label><input id="em" name="email" type="email" autocomplete="email" required maxlength="254"></div>
 <div class="hp" aria-hidden="true"><label>Website</label><input type="text" name="website" tabindex="-1" autocomplete="off"></div>
-<input type="hidden" name="t" value="${esc(t)}">
+<input type="hidden" name="t" value="${esc(t)}"><input type="hidden" name="tz" id="tz" value="">
 <label class="consent"><input type="checkbox" name="consent" value="on" required><span>${esc(f.consent_text)}</span></label>
 <button class="btn" id="go" type="submit">${esc(f.button_label)}</button>
 </form>
@@ -44,6 +44,7 @@ ${names}
 <script nonce="${nonce}">
 (function(){
 var form=document.getElementById('f'),err=document.getElementById('err'),go=document.getElementById('go'),label=go.textContent,embed=${embed ? 'true' : 'false'};
+try{document.getElementById('tz').value=Intl.DateTimeFormat().resolvedOptions().timeZone||'';}catch(e){}
 function size(){if(embed&&parent!==window)parent.postMessage({type:'wynmail-height',height:document.documentElement.scrollHeight+8},'*');}
 size();window.addEventListener('load',size);
 form.addEventListener('submit',function(e){

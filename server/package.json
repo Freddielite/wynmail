@@ -20,7 +20,10 @@
     "test:analytics": "node test/analytics.mjs",
     "test:segments": "node test/segments.mjs",
     "test:deliverability": "node test/deliverability.mjs",
-    "test:deliverability-unit": "node test/deliverability-unit.mjs"
+    "test:deliverability-unit": "node test/deliverability-unit.mjs",
+    "test:results-unit": "node test/results-unit.mjs",
+    "test:results": "node test/results.mjs",
+    "test:automations2": "node test/automations2.mjs"
   },
   "keywords": [],
   "author": "",

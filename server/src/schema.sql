@@ -343,3 +343,60 @@ CREATE TABLE IF NOT EXISTS list_optouts (
   PRIMARY KEY (contact_id, list_id)
 );
 ALTER TABLE list_optouts ENABLE ROW LEVEL SECURITY;
+
+-- Campaign results: A/B subject tests, resend to non-openers, timed delivery, unsubscribe reasons.
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS subject_b TEXT;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS ab_percent INT;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS ab_wait_hours INT;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS ab_metric TEXT;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS ab_winner TEXT;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS ab_decided_at TIMESTAMPTZ;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS ab_result JSONB;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS resend_of INT REFERENCES campaigns(id) ON DELETE SET NULL;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS best_time BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS local_time BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS local_at TEXT;
+
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS variant TEXT;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS ab_test BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS send_after TIMESTAMPTZ;
+
+ALTER TABLE contacts ADD COLUMN IF NOT EXISTS timezone TEXT;
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS default_timezone TEXT NOT NULL DEFAULT 'Africa/Lagos';
+
+CREATE TABLE IF NOT EXISTS unsub_reasons (
+  id SERIAL PRIMARY KEY,
+  workspace_id INT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  contact_id INT REFERENCES contacts(id) ON DELETE CASCADE,
+  message_id INT UNIQUE REFERENCES messages(id) ON DELETE CASCADE,
+  reason TEXT NOT NULL,
+  comment TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_unsub_reasons_ws ON unsub_reasons (workspace_id, created_at DESC);
+ALTER TABLE unsub_reasons ENABLE ROW LEVEL SECURITY;
+
+-- Automations: more triggers, branching steps, exit goals, yearly runs.
+ALTER TABLE automations ADD COLUMN IF NOT EXISTS trigger_type TEXT NOT NULL DEFAULT 'list_join';
+ALTER TABLE automations ADD COLUMN IF NOT EXISTS trigger_value TEXT;
+ALTER TABLE automations ADD COLUMN IF NOT EXISTS trigger_offset_days INT NOT NULL DEFAULT 0;
+ALTER TABLE automations ADD COLUMN IF NOT EXISTS trigger_yearly BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE automations ADD COLUMN IF NOT EXISTS last_scan_on DATE;
+ALTER TABLE automations ADD COLUMN IF NOT EXISTS goal_type TEXT;
+ALTER TABLE automations ADD COLUMN IF NOT EXISTS goal_value TEXT;
+
+ALTER TABLE automation_steps ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'email';
+ALTER TABLE automation_steps ADD COLUMN IF NOT EXISTS cond JSONB;
+ALTER TABLE automation_steps ADD COLUMN IF NOT EXISTS yes_to INT;
+ALTER TABLE automation_steps ADD COLUMN IF NOT EXISTS no_to INT;
+ALTER TABLE automation_steps ADD COLUMN IF NOT EXISTS tag_action TEXT;
+ALTER TABLE automation_steps ADD COLUMN IF NOT EXISTS tag_value TEXT;
+ALTER TABLE automation_steps ALTER COLUMN subject DROP NOT NULL;
+ALTER TABLE automation_steps ALTER COLUMN html DROP NOT NULL;
+
+ALTER TABLE automation_runs ADD COLUMN IF NOT EXISTS cycle INT NOT NULL DEFAULT 0;
+ALTER TABLE automation_runs ADD COLUMN IF NOT EXISTS ended_reason TEXT;
+ALTER TABLE automation_runs DROP CONSTRAINT IF EXISTS automation_runs_automation_id_contact_id_key;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_runs_once ON automation_runs (automation_id, contact_id, cycle);
+
+ALTER TABLE form_signups ADD COLUMN IF NOT EXISTS tz TEXT;

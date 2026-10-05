@@ -133,5 +133,8 @@ export const api = {
   updateCampaign: (id, b) => request(ws(`/campaigns/${id}`), { method: 'PUT', body: b }),
   sendCampaign: (id) => request(ws(`/campaigns/${id}/send`), { method: 'POST' }),
   campaignPreview: (id) => request(ws(`/campaigns/${id}/preview`)),
-  campaignMessages: (id) => request(ws(`/campaigns/${id}/messages`))
+  campaignMessages: (id) => request(ws(`/campaigns/${id}/messages`)),
+  campaignAb: (id) => request(ws(`/campaigns/${id}/ab`)),
+  resendCampaign: (id, subject) => request(ws(`/campaigns/${id}/resend`), { method: 'POST', body: { subject } }),
+  unsubscribeReasons: (days = 30) => request(ws(`/analytics/unsubscribe-reasons?days=${days}`))
 };

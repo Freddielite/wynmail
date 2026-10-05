@@ -157,7 +157,7 @@ export default function Contacts() {
 
           <div className="card">
             <h3>Import CSV</h3>
-            <p className="muted" style={{ margin: '4px 0 10px' }}>Header row required, with an email column. Extra columns become merge fields. Quoted commas, semicolons and tabs are fine. Goes into the list chosen above.</p>
+            <p className="muted" style={{ margin: '4px 0 10px' }}>Header row required, with an email column. Columns called tags and timezone (like Africa/Lagos) are read too. Other columns become merge fields. Dates should be written 2026-12-31. Quoted commas, semicolons and tabs are fine. Goes into the list chosen above.</p>
             <input type="file" accept=".csv,text/csv" onChange={readFile} style={{ marginBottom: 10 }} />
             <textarea rows="5" placeholder="email,first_name,company" value={csv} onChange={(e) => setCsv(e.target.value)} />
             <Btn className="btn sm" style={{ marginTop: 10 }} busyText="Importing..." onClick={importCsv}>Import</Btn>

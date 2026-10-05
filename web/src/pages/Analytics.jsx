@@ -9,8 +9,9 @@ export default function Analytics() {
   const guard = useGuard();
   const [days, setDays] = useState(30);
   const [data, setData] = useState(null);
+  const [why, setWhy] = useState(null);
 
-  useEffect(() => { guard(async () => setData(await api.analyticsOverview(days)))(); }, [days]);
+  useEffect(() => { guard(async () => { setData(await api.analyticsOverview(days)); setWhy(await api.unsubscribeReasons(days)); })(); }, [days]);
   if (!data) return <p className="muted">Loading...</p>;
 
   const t = data.totals;
@@ -67,6 +68,32 @@ export default function Analytics() {
           </div>
         </div>
       </div>
+
+      {why && (
+        <div className="card" style={{ marginTop: 18 }}>
+          <h3>Why people unsubscribe</h3>
+          <p className="muted" style={{ margin: '4px 0 12px' }}>
+            {why.unsubscribed} {why.unsubscribed === 1 ? 'person' : 'people'} unsubscribed in this period and {why.answered} told you why. The question is optional, so treat this as a guide.
+          </p>
+          {why.never_signed_up > 0 && (
+            <div className="checkitem" style={{ borderTop: 0 }}>
+              <span className="pill red">{why.never_signed_up}</span>
+              <div><strong>Say they never signed up</strong><div className="muted">Check where that list came from. People who did not ask for email are the ones who report spam.</div></div>
+            </div>
+          )}
+          {why.reasons.map((r) => (
+            <div key={r.reason} style={{ margin: '8px 0' }}>
+              <div className="between"><span>{r.label}</span><strong>{r.count}</strong></div>
+              <div className="bar"><i style={{ width: `${Math.round((r.count / why.answered) * 100)}%` }} /></div>
+            </div>
+          ))}
+          {!why.reasons.length && <p className="muted">No answers yet.</p>}
+          {why.comments.length > 0 && (<>
+            <h4 style={{ margin: '16px 0 6px' }}>What they wrote</h4>
+            {why.comments.map((c, i) => <div key={i} className="muted" style={{ margin: '4px 0' }}>"{c.comment}" <em>({c.label})</em></div>)}
+          </>)}
+        </div>
+      )}
     </>
   );
 }

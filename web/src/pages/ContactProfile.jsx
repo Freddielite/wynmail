@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api.js';
+import { TIMEZONES } from '../timezones.js';
 import { Btn, useGuard, when } from '../ui.jsx';
 
 const statusClass = { subscribed: 'green', unsubscribed: 'amber', bounced: 'red', complained: 'red' };
@@ -30,7 +31,7 @@ export default function ContactProfile() {
   const load = async () => {
     const d = await api.profile(id);
     setData(d);
-    setForm({ first_name: d.contact.first_name || '', last_name: d.contact.last_name || '', tags: d.contact.tags || [], attributes: d.contact.attributes || {} });
+    setForm({ first_name: d.contact.first_name || '', last_name: d.contact.last_name || '', tags: d.contact.tags || [], attributes: d.contact.attributes || {}, timezone: d.contact.timezone || '' });
   };
   useEffect(() => { guard(load)(); api.lists().then(setAllLists).catch(() => {}); api.members().then((m) => setCanManage(m.can_manage)).catch(() => {}); }, [id]);
   if (!data || !form) return <p className="muted">Loading...</p>;
@@ -78,6 +79,12 @@ export default function ContactProfile() {
             <div className="row" style={{ margin: '12px 0', alignItems: 'flex-start' }}>
               <div className="field" style={{ flex: 1, marginBottom: 0 }}><label>First name</label><input value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} /></div>
               <div className="field" style={{ flex: 1, marginBottom: 0 }}><label>Last name</label><input value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} /></div>
+            </div>
+            <div className="field">
+              <label>Time zone</label>
+              <input list="tz-list" value={form.timezone} onChange={(e) => setForm({ ...form, timezone: e.target.value })} placeholder="Africa/Lagos" />
+              <datalist id="tz-list">{TIMEZONES.map((z) => <option key={z} value={z} />)}</datalist>
+              <div className="muted" style={{ marginTop: 4 }}>Used when a campaign is sent at a set time in each person's own time zone. Leave empty to use your workspace zone.</div>
             </div>
             <div className="field">
               <label>Tags</label>

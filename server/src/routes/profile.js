@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { many, one, query } from '../db.js';
 import { cleanName, cleanAttrs, cleanTags } from '../validate.js';
 import { attachLists } from '../contacts.js';
+import { enrollTags } from '../automations.js';
+import { cleanTz } from '../timeutil.js';
 
 const router = Router({ mergeParams: true });
 const wid = (req) => req.workspace.id;
@@ -9,7 +11,7 @@ const bad = (res, msg) => res.status(400).json({ error: msg });
 const okId = (v) => /^\d{1,9}$/.test(String(v));
 
 const load = (req) => one(
-  `SELECT id, email, first_name, last_name, status, attributes, tags, consent_source, consent_at, consent_text, consent_ip, created_at, unsubscribed_at, paused_until, max_per_week
+  `SELECT id, email, first_name, last_name, status, attributes, tags, consent_source, consent_at, consent_text, consent_ip, created_at, unsubscribed_at, paused_until, max_per_week, timezone
    FROM contacts WHERE id = $1 AND workspace_id = $2`, [Number(req.params.id), wid(req)]);
 
 router.get('/:id', async (req, res) => {
@@ -40,12 +42,18 @@ router.put('/:id', async (req, res) => {
   const b = req.body || {};
   const attrs = b.attributes === undefined ? null : JSON.stringify(cleanAttrs(b.attributes) || {});
   const tags = b.tags === undefined ? null : cleanTags(b.tags);
+  const old = tags ? await one(`SELECT tags FROM contacts WHERE id = $1 AND workspace_id = $2`, [Number(req.params.id), wid(req)]) : null;
+  const tzGiven = b.timezone !== undefined;
+  const tz = tzGiven ? cleanTz(b.timezone) : null;
+  if (tzGiven && b.timezone && !tz) return bad(res, 'That is not a time zone name. Use a name like Africa/Lagos');
   const row = await one(
     `UPDATE contacts SET first_name = CASE WHEN $3::boolean THEN $4 ELSE first_name END, last_name = CASE WHEN $5::boolean THEN $6 ELSE last_name END,
-       attributes = COALESCE($7::jsonb, attributes), tags = COALESCE($8::text[], tags)
+       attributes = COALESCE($7::jsonb, attributes), tags = COALESCE($8::text[], tags),
+       timezone = CASE WHEN $9::boolean THEN $10 ELSE timezone END
      WHERE id = $1 AND workspace_id = $2 RETURNING id`,
-    [Number(req.params.id), wid(req), b.first_name !== undefined, cleanName(b.first_name, 60) || null, b.last_name !== undefined, cleanName(b.last_name, 60) || null, attrs, tags]);
+    [Number(req.params.id), wid(req), b.first_name !== undefined, cleanName(b.first_name, 60) || null, b.last_name !== undefined, cleanName(b.last_name, 60) || null, attrs, tags, tzGiven, tz]);
   if (!row) return res.status(404).json({ error: 'not found' });
+  if (tags) { const had = new Set(old?.tags || []); await enrollTags(wid(req), row.id, tags.filter((t) => !had.has(t))); }
   res.json(await load(req));
 });
 

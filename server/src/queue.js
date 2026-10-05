@@ -5,8 +5,10 @@ import { decrypt } from './config.js';
 import { senderAllowed } from './validate.js';
 import { throttled } from './throttle.js';
 import { sentToday, campaignLimit } from './usage.js';
-import { processDueRuns } from './automations.js';
+import { processDueRuns, scanDateTriggers } from './automations.js';
 import { compileSegment } from './segments.js';
+import { processAbTests, abPlan, AB_MIN_AUDIENCE } from './abtest.js';
+import { applyBestTime, applyLocalTime } from './timing.js';
 
 const MAX_ATTEMPTS = 3;
 const TICK_MS = Number(process.env.QUEUE_TICK_MS || 5000);
@@ -30,9 +32,27 @@ export async function enqueueCampaign(campaignId) {
   );
   if (!campaign) throw new Error('campaign not found or already sent');
 
+  // Campaigns that wait for a test result or for timed delivery are inserted on hold. Nothing can leave
+  // until the plan is complete, and a failure cleans up after itself.
+  const ab = !!(campaign.subject_b && campaign.ab_percent);
+  const staged = ab || campaign.best_time || campaign.local_time;
+  const initial = staged ? 'held' : 'queued';
+
   try {
     let res;
-    if (campaign.segment_id) {
+    if (campaign.resend_of) {
+      // Everyone who got the first email, is still subscribed, and has not opened, clicked, bounced or complained.
+      res = await one(
+        `WITH ins AS (
+           INSERT INTO messages (workspace_id, campaign_id, contact_id, email, token, status)
+           SELECT $2, $1, c.id, c.email, replace(gen_random_uuid()::text, '-', ''), '${initial}'
+           FROM messages m JOIN contacts c ON c.id = m.contact_id AND c.workspace_id = $2
+           WHERE m.campaign_id = $3 AND m.workspace_id = $2 AND m.status = 'sent'
+             AND m.opened_at IS NULL AND m.clicked_at IS NULL AND m.bounced_at IS NULL AND m.complained_at IS NULL
+             AND m.unsubscribed_at IS NULL AND c.status = 'subscribed'
+           RETURNING 1
+         ) SELECT count(*)::int AS n FROM ins`, [campaign.id, campaign.workspace_id, campaign.resend_of]);
+    } else if (campaign.segment_id) {
       // A segment is worked out now, at send time, so it always reflects who matches today.
       const seg = await one(`SELECT definition FROM segments WHERE id = $1 AND workspace_id = $2`, [campaign.segment_id, campaign.workspace_id]);
       if (!seg) throw new Error('the segment for this campaign no longer exists');
@@ -40,28 +60,45 @@ export async function enqueueCampaign(campaignId) {
       const cond = compileSegment(seg.definition, params);
       res = await one(
         `WITH ins AS (
-           INSERT INTO messages (workspace_id, campaign_id, contact_id, email, token)
-           SELECT $2, $1, c.id, c.email, replace(gen_random_uuid()::text, '-', '')
+           INSERT INTO messages (workspace_id, campaign_id, contact_id, email, token, status)
+           SELECT $2, $1, c.id, c.email, replace(gen_random_uuid()::text, '-', ''), '${initial}'
            FROM contacts c WHERE c.workspace_id = $2 AND c.status = 'subscribed' AND ${cond}
            RETURNING 1
          ) SELECT count(*)::int AS n FROM ins`, params);
     } else {
-    res = await one(
-      `WITH ins AS (
-         INSERT INTO messages (workspace_id, campaign_id, contact_id, email, token)
-         SELECT $2, $1, c.id, c.email, replace(gen_random_uuid()::text, '-', '')
-         FROM contacts c
-         JOIN list_contacts lc ON lc.contact_id = c.id
-         JOIN lists l ON l.id = lc.list_id AND l.workspace_id = c.workspace_id
-         WHERE lc.list_id = $3 AND c.status = 'subscribed' AND c.workspace_id = $2
-         RETURNING 1
-       ) SELECT count(*)::int AS n FROM ins`,
-      [campaign.id, campaign.workspace_id, campaign.list_id]
-    );
+      res = await one(
+        `WITH ins AS (
+           INSERT INTO messages (workspace_id, campaign_id, contact_id, email, token, status)
+           SELECT $2, $1, c.id, c.email, replace(gen_random_uuid()::text, '-', ''), '${initial}'
+           FROM contacts c
+           JOIN list_contacts lc ON lc.contact_id = c.id
+           JOIN lists l ON l.id = lc.list_id AND l.workspace_id = c.workspace_id
+           WHERE lc.list_id = $3 AND c.status = 'subscribed' AND c.workspace_id = $2
+           RETURNING 1
+         ) SELECT count(*)::int AS n FROM ins`,
+        [campaign.id, campaign.workspace_id, campaign.list_id]);
     }
-    if (!res.n) throw new Error('there is no one subscribed to send this to');
+    if (!res.n) throw new Error(campaign.resend_of ? 'everyone who got the first email has opened it, clicked, or left' : 'there is no one subscribed to send this to');
+
+    if (ab) {
+      if (res.n < AB_MIN_AUDIENCE) throw new Error(`An A/B test needs at least ${AB_MIN_AUDIENCE} people to mean anything. This audience has ${res.n}. Turn the test off or choose a bigger audience.`);
+      const { test } = abPlan(res.n, campaign.ab_percent);
+      // A random test group, split evenly. Everyone else waits for the winner.
+      await query(
+        `WITH ranked AS (SELECT id, row_number() OVER (ORDER BY random()) AS rn FROM messages WHERE campaign_id = $1)
+         UPDATE messages m SET status = 'queued', ab_test = true, variant = CASE WHEN r.rn % 2 = 1 THEN 'A' ELSE 'B' END
+         FROM ranked r WHERE m.id = r.id AND r.rn <= $2`, [campaign.id, test]);
+    } else if (campaign.best_time) {
+      await applyBestTime(campaign);
+      await query(`UPDATE messages SET status = 'queued' WHERE campaign_id = $1 AND status = 'held'`, [campaign.id]);
+    } else if (campaign.local_time) {
+      const ws = await one(`SELECT default_timezone FROM workspaces WHERE id = $1`, [campaign.workspace_id]);
+      await applyLocalTime(campaign, ws?.default_timezone);
+      await query(`UPDATE messages SET status = 'queued' WHERE campaign_id = $1 AND status = 'held'`, [campaign.id]);
+    }
     return res.n;
   } catch (err) {
+    await query(`DELETE FROM messages WHERE campaign_id = $1 AND status = 'held'`, [campaign.id]);
     await query(`UPDATE campaigns SET status = 'draft', started_at = NULL WHERE id = $1`, [campaign.id]);
     throw err;
   }
@@ -71,7 +108,7 @@ export async function drainOnce() {
   await query(`UPDATE messages SET status = 'queued' WHERE status = 'sending' AND claimed_at < now() - interval '10 minutes'`);
 
   const workspaces = await many(
-    `SELECT DISTINCT w.* FROM workspaces w JOIN messages m ON m.workspace_id = w.id WHERE m.status = 'queued'`
+    `SELECT DISTINCT w.* FROM workspaces w JOIN messages m ON m.workspace_id = w.id WHERE m.status = 'queued' AND (m.send_after IS NULL OR m.send_after <= now())`
   );
 
   for (const workspace of workspaces) {
@@ -87,7 +124,7 @@ export async function drainOnce() {
     const batch = await many(
       `UPDATE messages SET status = 'sending', claimed_at = now()
        WHERE id IN (
-         SELECT id FROM messages WHERE workspace_id = $1 AND status = 'queued'
+         SELECT id FROM messages WHERE workspace_id = $1 AND status = 'queued' AND (send_after IS NULL OR send_after <= now())
          ORDER BY queued_at ASC,
            CASE WHEN $3::boolean THEN (SELECT count(*) FROM messages p WHERE p.contact_id = messages.contact_id AND p.opened_at IS NOT NULL) ELSE 0 END DESC,
            id ASC
@@ -102,7 +139,7 @@ export async function drainOnce() {
   await query(
     `UPDATE campaigns SET status = 'sent', finished_at = now()
      WHERE status = 'sending'
-       AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.campaign_id = campaigns.id AND m.status IN ('queued','sending'))`
+       AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.campaign_id = campaigns.id AND m.status IN ('queued','sending','held'))`
   );
 }
 
@@ -134,7 +171,9 @@ async function sendMessage(workspace, message) {
   }
 
   try {
-    const built = buildEmail({ workspace, contact, subject: campaign.subject, html: campaign.html, token: message.token, preheader: campaign.preview_text });
+    // The B half of an A/B test gets the second subject. Everyone else gets the main one.
+    const subject = message.variant === 'B' && campaign.subject_b ? campaign.subject_b : campaign.subject;
+    const built = buildEmail({ workspace, contact, subject, html: campaign.html, token: message.token, preheader: campaign.preview_text });
     const result = await getProvider(workspace).send({
       to: contact.email,
       from: `${workspace.from_name || workspace.name} <${workspace.from_email}>`,
@@ -163,6 +202,8 @@ export function startWorker() {
     try {
       await enqueueDueCampaigns();
       await processDueRuns();
+      await scanDateTriggers();
+      await processAbTests();
       await drainOnce();
     } catch (err) {
       console.error('[queue]', err.message);
