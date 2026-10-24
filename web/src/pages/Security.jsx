@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, store } from '../api.js';
 import { Btn, CopyBtn, useGuard } from '../ui.jsx';
+import { SSO_ENABLED } from '../flags.js';
 
 // Two-step sign-in, sign out everywhere, and (read only) the single sign-on values for the company's IT team.
 export default function Security() {
@@ -13,7 +14,7 @@ export default function Security() {
   const [sso, setSso] = useState(null);
 
   const load = async () => { setMfa(await api.mfaStatus()); };
-  useEffect(() => { guard(load)(); api.sso().then(setSso).catch(() => {}); }, []);
+  useEffect(() => { guard(load)(); if (SSO_ENABLED) api.sso().then(setSso).catch(() => {}); }, []);
 
   const start = guard(async () => setSetup(await api.mfaSetup()));
   const enable = guard(async () => {

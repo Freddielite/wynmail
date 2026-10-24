@@ -16,6 +16,7 @@ import ContactProfile from './pages/ContactProfile.jsx';
 import Forms from './pages/Forms.jsx';
 import Automations from './pages/Automations.jsx';
 import Bell from './pages/Notifications.jsx';
+import { SSO_ENABLED } from './flags.js';
 import Select from './Select.jsx';
 
 function Shell({ user, workspaces, onLogout }) {
@@ -112,7 +113,7 @@ export default function App() {
   const [state, setState] = useState({ loading: true, user: null, workspaces: [] });
 
   // Single sign-on lands here with the token in the URL fragment. Take it and clean the address bar.
-  if (window.location.pathname === '/sso' && window.location.hash.startsWith('#token=')) {
+  if (SSO_ENABLED && window.location.pathname === '/sso' && window.location.hash.startsWith('#token=')) {
     store.token = decodeURIComponent(window.location.hash.slice(7));
     window.history.replaceState(null, '', '/');
   }

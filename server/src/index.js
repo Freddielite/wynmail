@@ -14,8 +14,7 @@ import webhookRoutes from './routes/webhooks.js';
 import formRoutes from './routes/forms.js';
 import { publicMedia } from './routes/media.js';
 import { startWorker } from './queue.js';
-import ssoRoutes from './routes/sso.js';
-import scimRoutes from './routes/scim.js';
+import { SSO_ENABLED } from './flags.js';
 
 const app = express();
 app.set('trust proxy', 1);
@@ -36,8 +35,11 @@ app.use((req, res, next) => {
 // The tracking pixel is embedded by mail clients, so it must be loadable cross-origin.
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 app.use('/webhooks', webhookRoutes);
-app.use('/scim/v2', scimRoutes);
-app.use('/sso', ssoRoutes);
+// SSO and SCIM are off unless ENABLE_SSO=1 (see flags.js).
+if (SSO_ENABLED) {
+  app.use('/scim/v2', (await import('./routes/scim.js')).default);
+  app.use('/sso', (await import('./routes/sso.js')).default);
+}
 app.use(express.json({ limit: '2mb' }));
 
 const origins = (process.env.FRONTEND_URL || 'http://localhost:5173').split(',').map((s) => s.trim().replace(/\/+$/, ''));

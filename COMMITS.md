@@ -106,3 +106,4 @@
 104. `feat(web): replace browser dropdowns with a custom searchable, keyboard-friendly Select`
 105. `test(web): add dropdown tests and run them in CI`
 106. `fix(sso): send browsers back to sign-in with a plain message when SSO is not set up, instead of showing JSON`
+107. `chore(sso): switch SSO and SCIM off behind ENABLE_SSO and VITE_ENABLE_SSO until a customer needs them`

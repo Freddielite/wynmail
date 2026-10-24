@@ -42,6 +42,7 @@ Mail arrives at `SECURITY_CONTACT`. Acknowledge in 2 working days, fix, deploy, 
 2. No codes either: confirm who they are outside the app (call a known number), then `POST /api/admin/users/:id/reset-mfa` as a platform admin. It switches MFA off and signs them out everywhere. They set it up again.
 
 ## Onboarding an enterprise customer on SSO
+0. SSO is off by default. Set `ENABLE_SSO=1` on Render and `VITE_ENABLE_SSO=1` on Vercel, then redeploy both.
 1. Set `PUBLIC_URL` on the API to its https address.
 2. Give their IT team the three values from Team > Single sign-on: Entity ID, Reply URL (ACS), SCIM base URL.
 3. They send back the sign-in URL, entity ID and signing certificate. As a platform admin: `PUT /api/workspaces/:id/sso` with `idp_sso_url`, `idp_entity_id`, `idp_cert`, `domains` (only domains the customer owns), `enabled: true`.

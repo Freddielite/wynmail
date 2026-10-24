@@ -239,6 +239,6 @@ See `AUDIT.md` for the full checklist with status, and `RUNBOOK.md` for deploy, 
 - **Two-step sign-in (TOTP):** Team > Two-step sign-in. 10 single-use recovery codes. Admin `POST /api/admin/users/:id/reset-mfa` for a lost phone.
 - **Permissions:** 14 per-feature permissions with role defaults and per-person overrides (Team > Permissions). `GET /permissions` lists them.
 - **Contacts undo:** deleted contacts are kept 30 days (Team > Recently deleted). `?permanent=1` erases at once.
-- **SSO and SCIM:** SAML 2.0 sign-in and SCIM 2.0 provisioning per workspace. Set `PUBLIC_URL`. Only platform admins edit it. See `RUNBOOK.md`.
+- **SSO and SCIM (switched off):** SAML 2.0 sign-in and SCIM 2.0 provisioning are built and tested but disabled. Turn on with `ENABLE_SSO=1` on the server and `VITE_ENABLE_SSO=1` when building the web app. Also set `PUBLIC_URL`. Only platform admins edit it. See `RUNBOOK.md`.
 - **Spam-risk guard:** emails that look likely to land in spam are held and the owner decides; it learns from your past campaigns. Settings > Hold emails that look like spam.
 - **Tests:** `test:hardening`, `test:features` (live server) and `test:spamrisk` (in-process) cover all of the above.

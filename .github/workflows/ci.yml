@@ -9,6 +9,7 @@ jobs:
       FORCE_PROVIDER: console
       MX_CHECK: "off"
       LOG: /tmp/server.log
+      ENABLE_SSO: "1"
     steps:
       - uses: actions/checkout@v4
       - name: Throwaway test secrets, generated per run (nothing secret is stored in the repo)

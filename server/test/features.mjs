@@ -10,6 +10,8 @@ import { SignedXml } from 'xml-crypto';
 import { codeFor, stepAt } from '../src/totp.js';
 
 const BASE = process.env.BASE || 'http://localhost:4000';
+// SSO and SCIM are off by default. Start the server with ENABLE_SSO=1 and run this with ENABLE_SSO=1 to include them.
+const SSO = process.env.ENABLE_SSO === '1';
 let pass = 0, fail = 0;
 const check = (name, cond, extra = '') => { cond ? pass++ : fail++; console.log(`${cond ? 'PASS' : 'FAIL'}  ${name}${cond ? '' : '  ' + extra}`); };
 async function call(method, p, { token, key, body, headers = {}, raw } = {}) {
@@ -105,6 +107,17 @@ check('an admin can reset MFA for someone who lost everything', (await call('POS
 check('after the reset, password alone works again', !!(await login('nina@example.com', 'nina-pass-123')).token);
 check('non-admins cannot reset MFA', (await call('POST', `/api/admin/users/${ninaId}/reset-mfa`, { token: O })).status === 403);
 
+// A view-only teammate, used by the spam-risk checks below.
+const vinv = await call('POST', w('/members'), { token: O, body: { email: 'viewer@acme.ng', role: 'viewer' } });
+await call('POST', '/api/auth/reset', { body: { token: resetLinkToken(vinv.data.invite_link), password: 'viewer-pass-1' } });
+const VW = (await login('viewer@acme.ng', 'viewer-pass-1')).token;
+
+if (!SSO) {
+  check('SSO is off: no SSO routes', (await call('GET', '/sso/start?email=a@acme.ng')).status === 404 && (await call('GET', `/sso/${W}/metadata`)).status === 404);
+  check('SSO is off: no SCIM routes', (await call('GET', '/scim/v2/Users')).status === 404);
+  check('SSO is off: no SSO settings endpoint', (await call('GET', w('/sso'), { token: O })).status === 403 || (await call('GET', w('/sso'), { token: O })).status === 404);
+}
+if (SSO) {
 /* ---------- SSO config, SCIM ---------- */
 const keyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'idp-'));
 execSync(`openssl req -x509 -newkey rsa:2048 -nodes -keyout ${keyDir}/k.pem -out ${keyDir}/c.pem -days 2 -subj "/CN=idp.example.com" 2>/dev/null`);
@@ -190,6 +203,8 @@ check('once enforced, passwords are refused for company addresses', (await call(
 check('platform admins can still use a password (break glass)', !!(await login('admin@wyntek.ng', 'correct-horse-1')).token);
 await call('PUT', w('/sso'), { token: A, body: { enforce: false } });
 
+}
+
 /* ---------- spam-risk hold ---------- */
 const reader = (await call('POST', w('/lists'), { token: O, body: { name: 'Readers' } })).data;
 for (let i = 0; i < 3; i++) await call('POST', w('/contacts'), { token: O, body: { email: `reader${i}@example.com`, list_id: reader.id } });
@@ -205,7 +220,7 @@ const notes = await call('GET', w('/notifications'), { token: O });
 check('the owner has an in-app notification', notes.data.unread >= 1 && notes.data.items.some((n) => n.kind === 'risk_hold' && n.campaign_id === junk.id));
 check('and an email went out', fs.readFileSync(process.env.LOG || '/tmp/srv.log', 'utf8').includes('A campaign was held'));
 check('marking read clears the count', (await call('POST', w('/notifications/read'), { token: O })).status === 200 && (await call('GET', w('/notifications'), { token: O })).data.unread === 0);
-check('a teammate without campaigns.send cannot override', (await call('POST', w(`/campaigns/${junk.id}/send`), { token: S, body: { send_anyway: true } })).status === 403);
+check('a teammate without campaigns.send cannot override', (await call('POST', w(`/campaigns/${junk.id}/send`), { token: VW, body: { send_anyway: true } })).status === 403);
 const forced = await call('POST', w(`/campaigns/${junk.id}/send`), { token: O, body: { send_anyway: true } });
 check('send anyway goes ahead', forced.status === 200 && forced.data.queued === 3, JSON.stringify(forced.data));
 check('the override is in the audit log', (await call('GET', w('/audit'), { token: O })).data.some((r) => r.action === 'campaign.risk_override' && Number(r.target) === junk.id));

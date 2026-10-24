@@ -8,7 +8,7 @@ import { audit } from '../audit.js';
 import jwt from 'jsonwebtoken';
 import { SECRET, encrypt, decrypt } from '../config.js';
 import { newSecret, verifyCode, otpauthUrl, newRecoveryCodes, hashRecovery } from '../totp.js';
-import { ssoEnforcedFor } from '../sso.js';
+import { ssoEnforcedFor } from '../ssolite.js';
 import { hmac } from '../config.js';
 import { sendSystemEmail, actionEmail } from '../sysmail.js';
 

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { api, store } from '../api.js';
+import { SSO_ENABLED } from '../flags.js';
 import { Btn } from '../ui.jsx';
 
 const SSO_MESSAGES = {
@@ -107,7 +108,7 @@ export default function Login({ onAuthed }) {
         )}
 
         {error && <div className="error">{error}</div>}
-        {!error && ssoError && <div className="error">{SSO_MESSAGES[ssoError] || 'Single sign-on did not work. Try again or ask your IT team.'}</div>}
+        {!error && SSO_ENABLED && ssoError && <div className="error">{SSO_MESSAGES[ssoError] || 'Single sign-on did not work. Try again or ask your IT team.'}</div>}
         {sent && <div className="ok">If that email has an account, a reset link is on its way. It expires in 1 hour.</div>}
 
         {mode === 'register' && (
@@ -128,7 +129,7 @@ export default function Login({ onAuthed }) {
         <Btn style={{ width: '100%' }} busyText={busy} onClick={submit}>{label}</Btn>
 
         <div style={{ textAlign: 'center', marginTop: 16 }}>
-          {mode === 'login' && <><button className="linklike" onClick={sso}>Sign in with SSO</button>{' | '}<button className="linklike" onClick={() => go('forgot')}>Forgot password?</button></>}
+          {mode === 'login' && <>{SSO_ENABLED && <><button className="linklike" onClick={sso}>Sign in with SSO</button>{' | '}</>}<button className="linklike" onClick={() => go('forgot')}>Forgot password?</button></>}
           {mode === 'forgot' && <button className="linklike" onClick={() => go('login')}>Back to sign in</button>}
         </div>
       </div>

@@ -23,7 +23,8 @@ const requestCache = {
   }
 };
 
-export const domainOf = (email) => String(email || '').toLowerCase().split('@')[1] || '';
+import { domainOf } from './ssolite.js';
+export { domainOf };
 
 export function samlFor(workspaceId, cfg) {
   return new SAML({
@@ -50,7 +51,7 @@ export const ssoConfigForEmail = (email) => one(
   `SELECT * FROM sso_configs WHERE enabled AND $1 = ANY(domains) AND idp_sso_url <> '' AND idp_cert <> ''`, [domainOf(email)]);
 
 // True when the person's company requires single sign-on, so a password must not be accepted.
-export const ssoEnforcedFor = async (email) => !!(await one(`SELECT 1 FROM sso_configs WHERE enabled AND enforce AND $1 = ANY(domains)`, [domainOf(email)]));
+
 
 // Pulls the email out of the assertion. Only the asserted address counts, and only for the company's own domains.
 export function emailFromProfile(profile) {
