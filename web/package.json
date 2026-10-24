@@ -11,7 +11,7 @@
     "test": "esbuild test/select.test.jsx --bundle --platform=node --format=esm --jsx=automatic --loader:.jsx=jsx --external:jsdom --external:react --external:react-dom --external:react-dom/client --log-level=error --outfile=.test-out.mjs && node .test-out.mjs"
   },
   "dependencies": {
-    "react": "^19.2.8",
+    "react": "^19.3.1",
     "react-dom": "^19.2.8",
     "react-router-dom": "^7.18.4"
   },
