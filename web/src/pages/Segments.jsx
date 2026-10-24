@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { Btn, useGuard } from '../ui.jsx';
+import Select from '../Select.jsx';
 
 const TEXT_OPS = { equals: 'is', contains: 'contains', is_empty: 'is empty', not_empty: 'is not empty' };
 const FIELDS = {
@@ -79,9 +80,9 @@ export default function Segments() {
   const valueInput = (r, i) => {
     const spec = FIELDS[r.field];
     if (NO_VALUE.includes(r.op)) return <span className="muted">no value needed</span>;
-    if (spec.value === 'status') return <select value={r.value} onChange={(e) => setRule(i, { value: e.target.value })}><option value="">Choose</option>{Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>;
-    if (spec.value === 'list') return <select value={r.value} onChange={(e) => setRule(i, { value: e.target.value })}><option value="">Choose a list</option>{lists.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select>;
-    if (spec.value === 'campaign') return <select value={r.value} onChange={(e) => setRule(i, { value: e.target.value })}><option value="">Choose a campaign</option>{campaigns.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>;
+    if (spec.value === 'status') return <Select value={r.value} onChange={(e) => setRule(i, { value: e.target.value })}><option value="">Choose</option>{Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</Select>;
+    if (spec.value === 'list') return <Select value={r.value} onChange={(e) => setRule(i, { value: e.target.value })}><option value="">Choose a list</option>{lists.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</Select>;
+    if (spec.value === 'campaign') return <Select value={r.value} onChange={(e) => setRule(i, { value: e.target.value })}><option value="">Choose a campaign</option>{campaigns.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</Select>;
     if (spec.value === 'days') return <input type="number" min="1" placeholder="days" value={r.value} onChange={(e) => setRule(i, { value: e.target.value })} />;
     return <input placeholder="value" value={r.value} onChange={(e) => setRule(i, { value: e.target.value })} />;
   };
@@ -97,15 +98,15 @@ export default function Segments() {
           <div className="field" style={{ marginTop: 12 }}><label>Name</label><input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="Engaged in the last 30 days" /></div>
           <div className="row" style={{ marginBottom: 10 }}>
             <span>People who match</span>
-            <select value={draft.match} onChange={(e) => setDraft({ ...draft, match: e.target.value })} style={{ width: 'auto' }}><option value="all">all</option><option value="any">any</option></select>
+            <Select value={draft.match} onChange={(e) => setDraft({ ...draft, match: e.target.value })} style={{ width: 'auto' }}><option value="all">all</option><option value="any">any</option></Select>
             <span>of these rules</span>
           </div>
 
           {draft.rules.map((r, i) => (
             <div className="rulebox" key={i}>
-              <select value={r.field} onChange={(e) => changeField(i, e.target.value)}>{Object.entries(FIELDS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select>
+              <Select value={r.field} onChange={(e) => changeField(i, e.target.value)}>{Object.entries(FIELDS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</Select>
               {FIELDS[r.field].key && <input placeholder="field name, e.g. company" value={r.key} onChange={(e) => setRule(i, { key: e.target.value })} />}
-              <select value={r.op} onChange={(e) => setRule(i, { op: e.target.value })}>{Object.entries(FIELDS[r.field].ops).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
+              <Select value={r.op} onChange={(e) => setRule(i, { op: e.target.value })}>{Object.entries(FIELDS[r.field].ops).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</Select>
               {valueInput(r, i)}
               {draft.rules.length > 1 && <button type="button" className="btn danger sm" onClick={() => setDraft({ ...draft, rules: draft.rules.filter((_, j) => j !== i) })}>Remove</button>}
             </div>

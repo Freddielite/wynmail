@@ -16,6 +16,7 @@ import ContactProfile from './pages/ContactProfile.jsx';
 import Forms from './pages/Forms.jsx';
 import Automations from './pages/Automations.jsx';
 import Bell from './pages/Notifications.jsx';
+import Select from './Select.jsx';
 
 function Shell({ user, workspaces, onLogout }) {
   const nav = useNavigate();
@@ -70,14 +71,14 @@ function Shell({ user, workspaces, onLogout }) {
         </nav>
         <div className="side-foot">
           {workspaces.length > 1 && (
-            <select
+            <Select
               className="ws-select"
               value={current?.id || ''}
               onChange={(e) => switchWorkspace(e.target.value)}
               style={{ marginBottom: 12, color: '#0f172a' }}
             >
               {workspaces.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-            </select>
+            </Select>
           )}
           <div>{current?.name}</div>
           <div>{user?.email}</div>

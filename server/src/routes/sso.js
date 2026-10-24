@@ -22,9 +22,11 @@ router.get('/:workspaceId/metadata', async (req, res) => {
 // Step 1: the person types their work email, we send them to their company's sign-in page.
 router.get('/start', limit, async (req, res) => {
   const email = normEmail(req.query.email);
-  if (!isEmail(email)) return res.status(400).json({ error: 'Enter your work email' });
+  // A person following the link in a browser gets sent back to the sign-in page with a message, not a page of JSON.
+  const fromBrowser = String(req.headers.accept || '').includes('text/html');
+  if (!isEmail(email)) return fromBrowser ? back(res, 'bad_email') : res.status(400).json({ error: 'Enter your work email' });
   const cfg = await ssoConfigForEmail(email);
-  if (!cfg) return res.status(404).json({ error: 'Single sign-on is not set up for that email domain.' });
+  if (!cfg) return fromBrowser ? back(res, 'not_configured') : res.status(404).json({ error: 'Single sign-on is not set up for that email domain.' });
   const url = await samlFor(cfg.workspace_id, cfg).getAuthorizeUrlAsync('', undefined, {});
   res.redirect(url);
 });

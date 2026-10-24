@@ -4,6 +4,7 @@ import { Btn, useGuard, usePolling, when } from '../ui.jsx';
 import EditorField from '../builder/EditorField.jsx';
 import { PRESETS } from '../builder/presets.js';
 import { renderDesign } from '../builder/render.js';
+import Select from '../Select.jsx';
 
 const UNITS = { minutes: 1, hours: 60, days: 1440 };
 const newStep = (over = {}) => ({ kind: 'email', id: null, value: 0, unit: 'minutes', subject: '', preview_text: '', html: '', design: null, kv: 0, stats: null,
@@ -189,16 +190,16 @@ export default function Automations() {
           <div className="stepbox">
             <strong>Start</strong>
             <div className="field" style={{ marginTop: 10 }}><label>Start when</label>
-              <select value={draft.trigger_type} onChange={(e) => setDraft({ ...draft, trigger_type: e.target.value, trigger_value: '' })}>
+              <Select value={draft.trigger_type} onChange={(e) => setDraft({ ...draft, trigger_type: e.target.value, trigger_value: '' })}>
                 {Object.entries(TRIGGERS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-              </select>
+              </Select>
             </div>
             {draft.trigger_type === 'list_join' && (
               <div className="field"><label>List</label>
-                <select value={draft.list_id} onChange={(e) => setDraft({ ...draft, list_id: e.target.value })}>
+                <Select value={draft.list_id} onChange={(e) => setDraft({ ...draft, list_id: e.target.value })}>
                   <option value="">Choose a list</option>
                   {lists.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-                </select>
+                </Select>
               </div>
             )}
             {draft.trigger_type === 'tag_added' && <div className="field"><label>Tag</label><input value={draft.trigger_value} onChange={(e) => setDraft({ ...draft, trigger_value: e.target.value })} placeholder="vip" /></div>}
@@ -225,11 +226,11 @@ export default function Automations() {
           {draft.steps.map((s, i) => {
             const later = draft.steps.map((x, j) => ({ x, j })).filter(({ j }) => j > i);
             const targets = (value, onChange, carry) => (
-              <select value={value} onChange={(e) => onChange(e.target.value)}>
+              <Select value={value} onChange={(e) => onChange(e.target.value)}>
                 <option value="">{carry}</option>
                 <option value="-1">Stop here</option>
                 {later.map(({ x, j }) => <option key={j} value={String(j)}>Skip to {stepLabel(x, j)}</option>)}
-              </select>
+              </Select>
             );
             const emailsBefore = draft.steps.map((x, j) => ({ x, j })).filter(({ x, j }) => j < i && x.kind === 'email');
             const label = s.kind === 'email' ? `Step ${i + 1}: Email` : s.kind === 'condition' ? `Step ${i + 1}: Check` : `Step ${i + 1}: Tag`;
@@ -245,9 +246,9 @@ export default function Automations() {
               <div className="delayrow" style={{ marginTop: 10 }}>
                 <span>{s.kind === 'email' ? 'Send' : 'Do this'}</span>
                 <input type="number" min="0" value={s.value} onChange={(e) => setStep(i, { value: e.target.value })} />
-                <select value={s.unit} onChange={(e) => setStep(i, { unit: e.target.value })}>
+                <Select value={s.unit} onChange={(e) => setStep(i, { unit: e.target.value })}>
                   <option value="minutes">minutes</option><option value="hours">hours</option><option value="days">days</option>
-                </select>
+                </Select>
                 <span>{Number(s.value) === 0 ? (i === 0 ? 'straight away' : 'straight away') : (i === 0 ? 'after they start' : 'after the step before it')}</span>
               </div>
 
@@ -256,10 +257,10 @@ export default function Automations() {
                 <div className="field"><label>Preview text (optional)</label><input value={s.preview_text} maxLength={150} onChange={(e) => setStep(i, { preview_text: e.target.value })} placeholder="The short line inboxes show after the subject" /></div>
                 {templates.length > 0 && (
                   <div className="field"><label>Start from a template</label>
-                    <select value="" onChange={(e) => applyTemplate(i, e.target.value)}>
+                    <Select value="" onChange={(e) => applyTemplate(i, e.target.value)}>
                       <option value="">Choose a template to fill this email</option>
                       {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-                    </select>
+                    </Select>
                   </div>
                 )}
                 <label>Content</label>
@@ -270,25 +271,25 @@ export default function Automations() {
 
               {s.kind === 'condition' && (<>
                 <div className="field"><label>Check whether the person</label>
-                  <select value={s.ctype} onChange={(e) => setStep(i, { ctype: e.target.value, cvalue: '', ckey: '' })}>
+                  <Select value={s.ctype} onChange={(e) => setStep(i, { ctype: e.target.value, cvalue: '', ckey: '' })}>
                     {Object.entries(CONDS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-                  </select>
+                  </Select>
                 </div>
                 {['opened', 'clicked'].includes(s.ctype) && (
                   <div className="field"><label>Which email</label>
-                    <select value={s.cvalue} onChange={(e) => setStep(i, { cvalue: e.target.value })}>
+                    <Select value={s.cvalue} onChange={(e) => setStep(i, { cvalue: e.target.value })}>
                       <option value="">The last email they got</option>
                       {emailsBefore.map(({ x, j }) => <option key={j} value={String(j)}>{stepLabel(x, j)}</option>)}
-                    </select>
+                    </Select>
                   </div>
                 )}
                 {s.ctype === 'clicked_link' && <div className="field"><label>Link contains</label><input value={s.cvalue} onChange={(e) => setStep(i, { cvalue: e.target.value })} placeholder="pricing" /></div>}
                 {s.ctype === 'has_tag' && <div className="field"><label>Tag</label><input value={s.cvalue} onChange={(e) => setStep(i, { cvalue: e.target.value })} placeholder="vip" /></div>}
                 {s.ctype === 'on_list' && (
                   <div className="field"><label>List</label>
-                    <select value={s.cvalue} onChange={(e) => setStep(i, { cvalue: e.target.value })}>
+                    <Select value={s.cvalue} onChange={(e) => setStep(i, { cvalue: e.target.value })}>
                       <option value="">Choose a list</option>{lists.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-                    </select>
+                    </Select>
                   </div>
                 )}
                 {s.ctype === 'attr_equals' && (
@@ -304,7 +305,7 @@ export default function Automations() {
               {s.kind === 'tag' && (<>
                 <div className="row">
                   <div className="field" style={{ flex: 1 }}><label>Action</label>
-                    <select value={s.tag_action} onChange={(e) => setStep(i, { tag_action: e.target.value })}><option value="add">Add the tag</option><option value="remove">Remove the tag</option></select></div>
+                    <Select value={s.tag_action} onChange={(e) => setStep(i, { tag_action: e.target.value })}><option value="add">Add the tag</option><option value="remove">Remove the tag</option></Select></div>
                   <div className="field" style={{ flex: 1 }}><label>Tag</label><input value={s.tag_value} onChange={(e) => setStep(i, { tag_value: e.target.value })} placeholder="engaged" /></div>
                 </div>
                 {i < draft.steps.length - 1 && <div className="field"><label>Then</label>{targets(s.then_to, (v) => setStep(i, { then_to: v }), 'Carry on to the next step')}</div>}
@@ -323,16 +324,16 @@ export default function Automations() {
           <div className="stepbox">
             <strong>Stop early</strong>
             <div className="field" style={{ marginTop: 10 }}><label>Stop the sequence when</label>
-              <select value={draft.goal_type} onChange={(e) => setDraft({ ...draft, goal_type: e.target.value, goal_value: '' })}>
+              <Select value={draft.goal_type} onChange={(e) => setDraft({ ...draft, goal_type: e.target.value, goal_value: '' })}>
                 {Object.entries(GOALS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-              </select>
+              </Select>
             </div>
             {draft.goal_type === 'tag' && <div className="field"><label>Tag</label><input value={draft.goal_value} onChange={(e) => setDraft({ ...draft, goal_value: e.target.value })} placeholder="customer" /></div>}
             {draft.goal_type === 'list' && (
               <div className="field"><label>List</label>
-                <select value={draft.goal_value} onChange={(e) => setDraft({ ...draft, goal_value: e.target.value })}>
+                <Select value={draft.goal_value} onChange={(e) => setDraft({ ...draft, goal_value: e.target.value })}>
                   <option value="">Choose a list</option>{lists.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-                </select>
+                </Select>
               </div>
             )}
             {draft.goal_type === 'link' && <div className="field"><label>Link contains</label><input value={draft.goal_value} onChange={(e) => setDraft({ ...draft, goal_value: e.target.value })} placeholder="checkout" /></div>}

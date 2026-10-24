@@ -3,6 +3,7 @@ import { api, store } from '../api.js';
 import { Btn, CopyBtn, useGuard } from '../ui.jsx';
 import Security from './Security.jsx';
 import { Deleted, ActivityLog } from './Activity.jsx';
+import Select from '../Select.jsx';
 
 export default function Team() {
   const guard = useGuard();
@@ -55,9 +56,9 @@ export default function Team() {
             <div className="row" style={{ margin: '12px 0 6px' }}>
               <input type="email" placeholder="teammate@company.com" value={email} onChange={(e) => setEmail(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && add()} />
-              <select value={role} onChange={(e) => setRole(e.target.value)} style={{ maxWidth: 130 }}>
+              <Select value={role} onChange={(e) => setRole(e.target.value)} style={{ maxWidth: 130 }}>
                 <option value="member">Member</option><option value="viewer">View only</option>
-              </select>
+              </Select>
               <Btn className="btn sm" busyText="Adding..." onClick={add}>Add person</Btn>
             </div>
           )}
@@ -100,9 +101,9 @@ export default function Team() {
             <div className="keybox" style={{ marginTop: 12 }}>
               <div className="between" style={{ marginBottom: 8 }}>
                 <strong>What this person can do</strong>
-                <select value={edit.role} onChange={(e) => setEdit({ ...edit, role: e.target.value })} style={{ maxWidth: 130 }}>
+                <Select value={edit.role} onChange={(e) => setEdit({ ...edit, role: e.target.value })} style={{ maxWidth: 130 }}>
                   <option value="member">Member</option><option value="viewer">View only</option>
-                </select>
+                </Select>
               </div>
               <label style={{ display: 'block', marginBottom: 8 }}>
                 <input type="checkbox" checked={edit.perms === null} onChange={(e) => setEdit({ ...edit, perms: e.target.checked ? null : new Set() })} /> Use the default for their role

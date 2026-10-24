@@ -3,6 +3,7 @@ import { useSearchParams, Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { Btn, useGuard, when } from '../ui.jsx';
 import ListHealth from './ListHealth.jsx';
+import Select from '../Select.jsx';
 
 const statusClass = { subscribed: 'green', unsubscribed: 'amber', bounced: 'red', complained: 'red' };
 
@@ -102,10 +103,10 @@ export default function Contacts() {
   const listPicker = (
     <div className="field">
       <label>Add to list</label>
-      <select value={target} onChange={(e) => setTarget(e.target.value)}>
+      <Select value={target} onChange={(e) => setTarget(e.target.value)}>
         <option value="">No list yet</option>
         {lists.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-      </select>
+      </Select>
     </div>
   );
 
@@ -120,10 +121,10 @@ export default function Contacts() {
             <h3>Lists</h3>
             <div className="field" style={{ marginTop: 10 }}>
               <label>Show</label>
-              <select value={listId} onChange={(e) => setListId(e.target.value)}>
+              <Select value={listId} onChange={(e) => setListId(e.target.value)}>
                 <option value="">All contacts</option>
                 {lists.map((l) => <option key={l.id} value={l.id}>{l.name} ({l.contact_count})</option>)}
-              </select>
+              </Select>
             </div>
             {lists.length > 0 && (
               <div style={{ margin: '4px 0 12px' }}>
@@ -177,13 +178,13 @@ export default function Contacts() {
             </div>
             <div className="row" style={{ marginBottom: 12 }}>
               {segmentId && <span className="pill">Segment: {segments.find((s) => String(s.id) === segmentId)?.name || segmentId}</span>}
-              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ maxWidth: 220 }}>
+              <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ maxWidth: 220 }}>
                 <option value="">Any status</option>
                 <option value="subscribed">Subscribed</option>
                 <option value="unsubscribed">Unsubscribed</option>
                 <option value="bounced">Bounced</option>
                 <option value="complained">Reported spam</option>
-              </select>
+              </Select>
               <Btn className="btn ghost sm" busyText="Preparing..." onClick={guard(async () => { await api.exportContacts(); return 'Contacts exported'; })}>Export CSV</Btn>
             </div>
             <div className="table-wrap">

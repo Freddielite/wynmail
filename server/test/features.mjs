@@ -150,6 +150,8 @@ check('SCIM actions are in the audit log', (await call('GET', w('/audit'), { tok
 /* ---------- SAML ---------- */
 check('metadata is served for the customer IT team', (await call('GET', `/sso/${W}/metadata`)).data.text?.includes('EntityDescriptor'));
 check('unknown domain has no SSO', (await call('GET', '/sso/start?email=a@unknown.com')).status === 404);
+const nav = await call('GET', '/sso/start?email=a@unknown.com', { headers: { Accept: 'text/html' } });
+check('a browser is sent back to sign-in with a message, not shown JSON', nav.status === 302 && /\/login\?sso_error=not_configured/.test(nav.headers.get('location') || ''));
 const start = await call('GET', '/sso/start?email=newhire@acme.ng');
 check('start redirects to the identity provider with a request', start.status === 302 && start.headers.get('location').startsWith('https://idp.example.com/sso?SAMLRequest='), start.headers.get('location'));
 const reqXml = zlib.inflateRawSync(Buffer.from(new URL(start.headers.get('location')).searchParams.get('SAMLRequest'), 'base64')).toString();

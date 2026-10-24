@@ -5,6 +5,7 @@ import EditorField from '../builder/EditorField.jsx';
 import CampaignAnalytics from './CampaignAnalytics.jsx';
 import PreCheck from './PreCheck.jsx';
 import AbReport from './AbReport.jsx';
+import Select from '../Select.jsx';
 
 const blank = { name: '', subject: '', preview_text: '', html: '', design: null, audience: 'list', list_id: '', segment_id: '', scheduled_at: '', template_id: '',
   ab: false, subject_b: '', ab_percent: 20, ab_wait_hours: 4, ab_metric: 'opens', timing: 'now', local_at: '' };
@@ -206,11 +207,11 @@ export default function Campaigns() {
                 <div className="field"><label>Subject B</label><input placeholder="A different way to say it" value={draft.subject_b} onChange={set('subject_b')} /></div>
                 <div className="row" style={{ alignItems: 'flex-end' }}>
                   <div className="field" style={{ flex: 1, marginBottom: 0 }}><label>Test group</label>
-                    <select value={draft.ab_percent} onChange={set('ab_percent')}>{[10, 20, 30, 40, 50].map((n) => <option key={n} value={n}>{n}% of the audience</option>)}</select></div>
+                    <Select value={draft.ab_percent} onChange={set('ab_percent')}>{[10, 20, 30, 40, 50].map((n) => <option key={n} value={n}>{n}% of the audience</option>)}</Select></div>
                   <div className="field" style={{ flex: 1, marginBottom: 0 }}><label>Pick the winner by</label>
-                    <select value={draft.ab_metric} onChange={set('ab_metric')}><option value="opens">Opens</option><option value="clicks">Clicks</option></select></div>
+                    <Select value={draft.ab_metric} onChange={set('ab_metric')}><option value="opens">Opens</option><option value="clicks">Clicks</option></Select></div>
                   <div className="field" style={{ flex: 1, marginBottom: 0 }}><label>After waiting</label>
-                    <select value={draft.ab_wait_hours} onChange={set('ab_wait_hours')}>{[1, 2, 4, 8, 24, 48].map((n) => <option key={n} value={n}>{n} hour{n === 1 ? '' : 's'}</option>)}</select></div>
+                    <Select value={draft.ab_wait_hours} onChange={set('ab_wait_hours')}>{[1, 2, 4, 8, 24, 48].map((n) => <option key={n} value={n}>{n} hour{n === 1 ? '' : 's'}</option>)}</Select></div>
                 </div>
                 <div className="muted" style={{ marginTop: 8 }}>Needs at least 20 people. Opens are counted from privacy proxies too, so clicks are the more honest measure for a list that reads in Apple Mail.</div>
               </div>
@@ -225,35 +226,35 @@ export default function Campaigns() {
               <div style={{ flex: 1 }}>
                 {draft.audience === 'list' ? (<>
                   <label>List</label>
-                  <select value={draft.list_id} onChange={set('list_id')}>
+                  <Select value={draft.list_id} onChange={set('list_id')}>
                     <option value="">Choose a list</option>
                     {lists.map((l) => <option key={l.id} value={l.id}>{l.name} ({l.subscribed_count} can receive)</option>)}
-                  </select>
+                  </Select>
                 </>) : (<>
                   <label>Segment</label>
-                  <select value={draft.segment_id} onChange={set('segment_id')}>
+                  <Select value={draft.segment_id} onChange={set('segment_id')}>
                     <option value="">Choose a segment</option>
                     {segments.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.subscribed} can receive)</option>)}
-                  </select>
+                  </Select>
                   {!segments.length && <div className="muted" style={{ marginTop: 4 }}>No segments yet. Create one on the Segments page.</div>}
                 </>)}
               </div>
               <div style={{ flex: 1 }}>
                 <label>Start from template</label>
-                <select value={draft.template_id} onChange={useTemplate}>
+                <Select value={draft.template_id} onChange={useTemplate}>
                   <option value="">None</option>
                   {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-                </select>
+                </Select>
               </div>
             </div>
             {skipped > 0 && <div className="muted" style={{ margin: '-6px 0 14px' }}>{skipped} of {picked.contact_count} contacts in this list will be skipped: they unsubscribed, bounced or reported spam.</div>}
             <div className="field">
               <label>When it goes out</label>
-              <select value={draft.timing} onChange={(e) => setDraft({ ...draft, timing: e.target.value, ab: e.target.value === 'now' ? draft.ab : false, scheduled_at: e.target.value === 'now' ? draft.scheduled_at : '' })}>
+              <Select value={draft.timing} onChange={(e) => setDraft({ ...draft, timing: e.target.value, ab: e.target.value === 'now' ? draft.ab : false, scheduled_at: e.target.value === 'now' ? draft.scheduled_at : '' })}>
                 <option value="now">At one time for everyone</option>
                 <option value="best">At each person's best time</option>
                 <option value="local">At a set time in each person's own time zone</option>
-              </select>
+              </Select>
               {draft.timing === 'now' && (<>
                 <input type="datetime-local" style={{ marginTop: 8 }} value={draft.scheduled_at} onChange={set('scheduled_at')} />
                 <div className="muted" style={{ marginTop: 4 }}>{draft.scheduled_at ? 'The main button will schedule this campaign.' : 'Leave empty to send right away.'}</div>

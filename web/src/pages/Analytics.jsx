@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { useGuard } from '../ui.jsx';
 import { BarChart, Heatmap, bestTime } from '../charts.jsx';
+import Select from '../Select.jsx';
 
 const short = (d) => new Date(`${d}T00:00:00`).toLocaleDateString([], { month: 'short', day: 'numeric' });
 
@@ -25,9 +26,9 @@ export default function Analytics() {
     <>
       <div className="between" style={{ marginBottom: 20 }}>
         <div><h1>Analytics</h1><p className="muted">How your emails are doing.</p></div>
-        <select value={days} onChange={(e) => setDays(Number(e.target.value))} style={{ maxWidth: 190 }}>
+        <Select value={days} onChange={(e) => setDays(Number(e.target.value))} style={{ maxWidth: 190 }}>
           <option value={7}>Last 7 days</option><option value={30}>Last 30 days</option><option value={90}>Last 90 days</option>
-        </select>
+        </Select>
       </div>
 
       <div className="grid stats">

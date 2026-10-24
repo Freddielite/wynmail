@@ -103,3 +103,6 @@
 101. `fix(ci): stop committing a test secret that GitHub flagged; generate throwaway secrets per run and fix the audit step`
 102. `fix(test): wait for the import automation email instead of sleeping a fixed 3 seconds`
 103. `chore(deps): fix body-parser and zod advisories and add node-saml`
+104. `feat(web): replace browser dropdowns with a custom searchable, keyboard-friendly Select`
+105. `test(web): add dropdown tests and run them in CI`
+106. `fix(sso): send browsers back to sign-in with a plain message when SSO is not set up, instead of showing JSON`

@@ -3,6 +3,7 @@ import { api } from '../api.js';
 import { Btn, CopyBtn, useGuard } from '../ui.jsx';
 import Warmup from './Warmup.jsx';
 import { TIMEZONES } from '../timezones.js';
+import Select from '../Select.jsx';
 
 export default function Settings({ admin }) {
   const guard = useGuard();
@@ -79,10 +80,10 @@ export default function Settings({ admin }) {
               <div className="field" style={{ flex: 1 }}><label>Daily limit</label><input type="number" value={form.daily_limit} onChange={set('daily_limit')} disabled={!admin} /></div>
             </div>
             <div className="field"><label>Provider</label>
-              <select value={form.provider} onChange={set('provider')} disabled={!admin}>
+              <Select value={form.provider} onChange={set('provider')} disabled={!admin}>
                 <option value="resend">Resend</option>
                 <option value="console">Console (dry run)</option>
-              </select>
+              </Select>
             </div>
             <div className="field">
               <label>Provider API key</label>

@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api.js';
 import { TIMEZONES } from '../timezones.js';
 import { Btn, useGuard, when } from '../ui.jsx';
+import Select from '../Select.jsx';
 
 const statusClass = { subscribed: 'green', unsubscribed: 'amber', bounced: 'red', complained: 'red' };
 
@@ -115,7 +116,7 @@ export default function ContactProfile() {
             {c.paused_until && new Date(c.paused_until) > new Date() && <p className="muted" style={{ margin: '0 0 10px' }}>Paused emails until {when(c.paused_until)}.</p>}
             {c.max_per_week > 0 && <p className="muted" style={{ margin: '0 0 10px' }}>Asked for at most {c.max_per_week} email{c.max_per_week === 1 ? '' : 's'} a week.</p>}
             <div className="row">
-              <select value={addList} onChange={(e) => setAddList(e.target.value)}><option value="">Add to a list</option>{allLists.filter((l) => !memberOf.has(l.id)).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select>
+              <Select value={addList} onChange={(e) => setAddList(e.target.value)}><option value="">Add to a list</option>{allLists.filter((l) => !memberOf.has(l.id)).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</Select>
               <Btn className="btn ghost sm" busyText="Adding..." onClick={join}>Add</Btn>
             </div>
           </div>

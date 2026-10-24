@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { Btn, CodeBlock, CopyBtn, useGuard, when } from '../ui.jsx';
+import Select from '../Select.jsx';
 
 const DEFAULT = {
   name: '', list_id: '', title: 'Subscribe to our newsletter', description: '', button_label: 'Subscribe', ask_names: true,
@@ -107,10 +108,10 @@ export default function Forms() {
             <h3>{editing ? `Edit "${editingForm?.name || 'form'}"` : 'New form'}</h3>
             <div className="field" style={{ marginTop: 12 }}><label>Name (only you see this)</label><input value={draft.name} onChange={set('name')} placeholder="Website newsletter" /></div>
             <div className="field"><label>Add people to this list</label>
-              <select value={draft.list_id} onChange={set('list_id')}>
+              <Select value={draft.list_id} onChange={set('list_id')}>
                 <option value="">Choose a list</option>
                 {lists.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-              </select>
+              </Select>
             </div>
             <div className="field"><label>Heading</label><input value={draft.title} onChange={set('title')} /></div>
             <div className="field"><label>Short description (optional)</label><input value={draft.description} onChange={set('description')} placeholder="One email a month. No spam." /></div>

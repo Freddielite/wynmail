@@ -2,6 +2,14 @@ import { useState } from 'react';
 import { api, store } from '../api.js';
 import { Btn } from '../ui.jsx';
 
+const SSO_MESSAGES = {
+  not_configured: 'Single sign-on is not set up for that email address. Sign in with your password instead, or ask Wyntek to set up SSO for your company.',
+  bad_email: 'Enter your full work email first, then choose Sign in with SSO.',
+  invalid_response: 'Your company\'s sign-in answer could not be verified. Try again, and tell your IT team if it keeps happening.',
+  email_not_allowed: 'That account is not allowed to sign in here. Ask your IT team to check your email domain.',
+  not_configured_workspace: 'Single sign-on is switched off for this company.'
+};
+
 export default function Login({ onAuthed }) {
   const [mode, setMode] = useState('login');
   const [form, setForm] = useState({ email: '', password: '', name: '', workspaceName: '' });
@@ -99,7 +107,7 @@ export default function Login({ onAuthed }) {
         )}
 
         {error && <div className="error">{error}</div>}
-        {!error && ssoError && <div className="error">Single sign-on did not work ({ssoError.replace(/_/g, ' ')}). Try again or ask your IT team.</div>}
+        {!error && ssoError && <div className="error">{SSO_MESSAGES[ssoError] || 'Single sign-on did not work. Try again or ask your IT team.'}</div>}
         {sent && <div className="ok">If that email has an account, a reset link is on its way. It expires in 1 hour.</div>}
 
         {mode === 'register' && (

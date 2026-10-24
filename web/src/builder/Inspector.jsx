@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { BLOCK_LABELS, FONT_LABELS, safeUrl } from './render.js';
 import MediaPicker from './MediaPicker.jsx';
+import Select from '../Select.jsx';
 
 const Row = ({ label, children }) => <div className="field"><label>{label}</label>{children}</div>;
 
@@ -36,12 +37,12 @@ function Align({ value, onChange }) {
 
 function MergeInsert({ onInsert }) {
   return (
-    <select value="" onChange={(e) => e.target.value && onInsert(e.target.value)} aria-label="Insert a personal field">
+    <Select value="" onChange={(e) => e.target.value && onInsert(e.target.value)} aria-label="Insert a personal field">
       <option value="">Insert a personal field</option>
       <option value="{{first_name|there}}">First name (or "there")</option>
       <option value="{{last_name}}">Last name</option>
       <option value="{{email}}">Email address</option>
-    </select>
+    </Select>
   );
 }
 
@@ -54,7 +55,7 @@ function Fields({ block, set }) {
     case 'heading':
       return (<>
         <Row label="Heading text"><input value={p.text} onChange={(e) => set({ text: e.target.value })} /><MergeInsert onInsert={(m) => set({ text: `${p.text}${m}` })} /></Row>
-        <Row label="Size"><select value={p.level} onChange={(e) => set({ level: Number(e.target.value) })}><option value={1}>Large</option><option value={2}>Medium</option><option value={3}>Small</option></select></Row>
+        <Row label="Size"><Select value={p.level} onChange={(e) => set({ level: Number(e.target.value) })}><option value={1}>Large</option><option value={2}>Medium</option><option value={3}>Small</option></Select></Row>
         <Row label="Alignment"><Align value={p.align} onChange={(align) => set({ align })} /></Row>
         <Row label="Color"><Color value={p.color} none onChange={(color) => set({ color })} /></Row>
       </>);
@@ -96,7 +97,7 @@ function Fields({ block, set }) {
       </>);
     case 'columns':
       return (<>
-        <Row label="Column sizes"><select value={p.ratio} onChange={(e) => set({ ratio: e.target.value })}><option value="50-50">Half and half</option><option value="33-67">Narrow then wide</option><option value="67-33">Wide then narrow</option></select></Row>
+        <Row label="Column sizes"><Select value={p.ratio} onChange={(e) => set({ ratio: e.target.value })}><option value="50-50">Half and half</option><option value="33-67">Narrow then wide</option><option value="67-33">Wide then narrow</option></Select></Row>
         <Row label="Space between"><Slider value={p.gap} min={0} max={48} onChange={(gap) => set({ gap })} /></Row>
         <p className="muted">Drag blocks into either column. On phones the columns stack.</p>
       </>);
@@ -136,7 +137,7 @@ export default function Inspector({ block, settings, setSettings, set, onDuplica
         <Row label="Background around the email"><Color value={settings.background} onChange={(background) => setSettings({ background })} /></Row>
         <Row label="Email background"><Color value={settings.contentBg} onChange={(contentBg) => setSettings({ contentBg })} /></Row>
         <Row label="Email width"><Slider value={settings.width} min={480} max={680} onChange={(width) => setSettings({ width })} /></Row>
-        <Row label="Font"><select value={settings.font} onChange={(e) => setSettings({ font: e.target.value })}>{Object.entries(FONT_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Row>
+        <Row label="Font"><Select value={settings.font} onChange={(e) => setSettings({ font: e.target.value })}>{Object.entries(FONT_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</Select></Row>
         <Row label="Text size"><Slider value={settings.fontSize} min={12} max={22} onChange={(fontSize) => setSettings({ fontSize })} /></Row>
         <Row label="Text color"><Color value={settings.textColor} onChange={(textColor) => setSettings({ textColor })} /></Row>
         <Row label="Link color"><Color value={settings.linkColor} onChange={(linkColor) => setSettings({ linkColor })} /></Row>

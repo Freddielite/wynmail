@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "esbuild test/select.test.jsx --bundle --platform=node --format=esm --jsx=automatic --loader:.jsx=jsx --external:jsdom --external:react --external:react-dom --external:react-dom/client --log-level=error --outfile=.test-out.mjs && node .test-out.mjs"
   },
   "dependencies": {
     "react": "^19.2.8",
@@ -18,6 +19,8 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.1.1",
+    "esbuild": "^0.28.2",
+    "jsdom": "^30.1.3",
     "oxlint": "^1.81.0",
     "vite": "^8.3.0"
   }
