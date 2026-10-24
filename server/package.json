@@ -23,7 +23,11 @@
     "test:deliverability-unit": "node test/deliverability-unit.mjs",
     "test:results-unit": "node test/results-unit.mjs",
     "test:results": "node test/results.mjs",
-    "test:automations2": "node test/automations2.mjs"
+    "test:automations2": "node test/automations2.mjs",
+    "migrate": "node scripts/migrate.js up",
+    "migrate:down": "node scripts/migrate.js down",
+    "migrate:status": "node scripts/migrate.js status",
+    "test:hardening": "node test/hardening.mjs"
   },
   "keywords": [],
   "author": "",

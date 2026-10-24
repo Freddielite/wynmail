@@ -31,6 +31,8 @@ import { capForDay, schedule, daysToSend, warmupDay } from '../warmup.js';
 import { abStats, abPlan, AB_MIN_AUDIENCE } from '../abtest.js';
 import { cleanTz, earliestInstant, LOCAL_RE } from '../timeutil.js';
 import automationsAdmin from './automationsAdmin.js';
+import { audit, listAudit } from '../audit.js';
+import { archive, listDeleted, restore } from '../archive.js';
 import { isEmail, normEmail, DOMAIN_RE, TRACKING_RE, cleanName, cleanText, cleanAttrs, senderAllowed, readDesign } from '../validate.js';
 
 const router = Router({ mergeParams: true });
@@ -40,6 +42,12 @@ const MAX_HTML = 500000;
 const MAX_IMPORT_ROWS = 5000;
 
 router.param('id', (_req, res, next, v) => (/^\d{1,9}$/.test(v) ? next() : bad(res, 'bad id')));
+
+// Viewers can look but not change anything.
+router.use((req, res, next) => (req.workspace.role === 'viewer' && !['GET', 'HEAD', 'OPTIONS'].includes(req.method)
+  ? res.status(403).json({ error: 'Your role is view only' }) : next()));
+// Sensitive actions (API keys, data exports, provider secrets) need the workspace owner.
+const needOwner = (what) => async (req, res, next) => ((await canManageTeam(req)) ? next() : res.status(403).json({ error: `Only the workspace owner can ${what}` }));
 
 const isAdmin = async (uid) => !!(await one(`SELECT is_admin FROM users WHERE id = $1`, [uid]))?.is_admin;
 const ownsSegment = async (workspaceId, id) => !!(await one(`SELECT 1 FROM segments WHERE id = $1 AND workspace_id = $2`, [id, workspaceId]));
@@ -129,6 +137,8 @@ router.put('/', async (req, res) => {
     if (!tzone) return bad(res, 'That is not a time zone name. Use a name like Africa/Lagos');
   }
 
+  const secretsChanged = ['provider_api_key', 'webhook_secret', 'clear_provider_key', 'clear_webhook_secret'].some((k) => f[k] !== undefined);
+  if (secretsChanged && !owner) return res.status(403).json({ error: 'Only the workspace owner can change provider keys' });
   const newKey = typeof f.provider_api_key === 'string' && f.provider_api_key.trim() ? encrypt(f.provider_api_key.trim()) : null;
   const newHook = typeof f.webhook_secret === 'string' && f.webhook_secret.trim() ? encrypt(f.webhook_secret.trim()) : null;
 
@@ -154,6 +164,8 @@ router.put('/', async (req, res) => {
      flag('block_disposable'), flag('block_role'), flag('check_mx'), flag('preference_center'),
      warmEnabled, warmVolume, warmGrowth, admin && f.warmup_restart === true, tzone]
   );
+  // Field names only. Secret values never enter the log.
+  await audit(req, 'workspace.settings_updated', { meta: { fields: Object.keys(f).filter((k) => f[k] !== undefined) } });
   res.json(publicWorkspace(row));
 });
 
@@ -180,7 +192,13 @@ router.put('/lists/:id', async (req, res) => {
 });
 
 router.delete('/lists/:id', async (req, res) => {
-  await query(`DELETE FROM lists WHERE id = $1 AND workspace_id = $2`, [req.params.id, ws(req)]);
+  // list_contacts rows go with the list, so read who was on it first, for a restore.
+  const members = await many(`SELECT lc.contact_id FROM list_contacts lc JOIN lists l ON l.id = lc.list_id WHERE l.id = $1 AND l.workspace_id = $2`, [req.params.id, ws(req)]);
+  const gone = await one(`DELETE FROM lists WHERE id = $1 AND workspace_id = $2 RETURNING *`, [req.params.id, ws(req)]);
+  if (gone) {
+    await archive(ws(req), 'list', gone, { label: gone.name, userId: req.user.uid, extra: { list_contact_ids: members.map((m) => m.contact_id) } });
+    await audit(req, 'list.deleted', { target: gone.id });
+  }
   res.json({ ok: true });
 });
 
@@ -198,7 +216,13 @@ router.get('/contacts', async (req, res) => {
     if (!seg) return res.status(404).json({ error: 'segment not found' });
     where.push(compileSegment(seg.definition, params));
   }
-  const rows = await many(`SELECT c.* FROM contacts c WHERE ${where.join(' AND ')} ORDER BY c.id DESC LIMIT 500`, params);
+  // Page through with ?cursor=<last id>. The next cursor comes back in the X-Next-Cursor header, so the body stays a plain array.
+  const limit = Math.min(Math.max(Number(req.query.limit) || 500, 1), 500);
+  if (/^\d{1,9}$/.test(String(req.query.cursor || ''))) { params.push(Number(req.query.cursor)); where.push(`c.id < $${params.length}`); }
+  const rows = await many(`SELECT c.* FROM contacts c WHERE ${where.join(' AND ')} ORDER BY c.id DESC LIMIT ${limit + 1}`, params);
+  const more = rows.length > limit;
+  if (more) rows.pop();
+  if (more) res.set('X-Next-Cursor', String(rows[rows.length - 1].id)).set('Access-Control-Expose-Headers', 'X-Next-Cursor');
   res.json(rows.map((r) => ({ ...r, role_address: isRole(r.email) })));
 });
 
@@ -242,6 +266,8 @@ router.delete('/contacts/:id', async (req, res) => {
   const gone = await one(`DELETE FROM contacts WHERE id = $1 AND workspace_id = $2 RETURNING email`, [req.params.id, ws(req)]);
   // Deleting a contact also erases their signup and consent log entries.
   if (gone) await query(`DELETE FROM form_signups WHERE workspace_id = $1 AND email = $2`, [ws(req), gone.email]);
+  // Contacts are erased for good (that is the privacy promise), so the log keeps the id, never the address.
+  if (gone) await audit(req, 'contact.deleted', { target: req.params.id });
   res.json({ ok: true });
 });
 
@@ -276,8 +302,27 @@ router.put('/templates/:id', async (req, res) => {
 });
 
 router.delete('/templates/:id', async (req, res) => {
-  await query(`DELETE FROM templates WHERE id = $1 AND workspace_id = $2`, [req.params.id, ws(req)]);
+  const gone = await one(`DELETE FROM templates WHERE id = $1 AND workspace_id = $2 RETURNING *`, [req.params.id, ws(req)]);
+  if (gone) {
+    await archive(ws(req), 'template', gone, { label: gone.name, userId: req.user.uid });
+    await audit(req, 'template.deleted', { target: gone.id });
+  }
   res.json({ ok: true });
+});
+
+/* ---------- undo window for deleted lists and templates ---------- */
+router.get('/deleted', async (req, res) => res.json(await listDeleted(ws(req))));
+
+router.post('/deleted/:id/restore', async (req, res) => {
+  const row = await restore(ws(req), req.params.id);
+  if (!row) return res.status(404).json({ error: 'That item is gone or cannot be restored' });
+  await audit(req, 'record.restored', { target: req.params.id });
+  res.json(row);
+});
+
+// Who did what in this workspace. Owner only. Page back with ?before=<last id>.
+router.get('/audit', needOwner('read the activity log'), async (req, res) => {
+  res.json(await listAudit(ws(req), { before: req.query.before, limit: req.query.limit }));
 });
 
 /* ---------- campaigns ---------- */
@@ -424,13 +469,13 @@ router.get('/campaigns/:id/messages', async (req, res) => {
 });
 
 /* ---------- API keys ---------- */
-router.get('/api-keys', async (req, res) => {
+router.get('/api-keys', needOwner('manage API keys'), async (req, res) => {
   res.json(await many(
     `SELECT id, name, prefix, last_used_at, created_at FROM api_keys
      WHERE workspace_id = $1 AND revoked_at IS NULL ORDER BY id DESC`, [ws(req)]));
 });
 
-router.post('/api-keys', async (req, res) => {
+router.post('/api-keys', needOwner('manage API keys'), async (req, res) => {
   const name = cleanName(req.body?.name) || 'Untitled key';
   const { n } = await one(`SELECT count(*)::int AS n FROM api_keys WHERE workspace_id = $1 AND revoked_at IS NULL`, [ws(req)]);
   if (n >= 10) return bad(res, 'You can have at most 10 active keys. Revoke one first.');
@@ -438,11 +483,13 @@ router.post('/api-keys', async (req, res) => {
   const row = await one(
     `INSERT INTO api_keys (workspace_id, name, prefix, key_hash) VALUES ($1, $2, $3, $4)
      RETURNING id, name, prefix, created_at`, [ws(req), name, prefix, hash]);
+  await audit(req, 'apikey.created', { target: row.id, meta: { name } });
   res.json({ ...row, key }); // the full key is shown this once and never stored
 });
 
-router.delete('/api-keys/:id', async (req, res) => {
+router.delete('/api-keys/:id', needOwner('manage API keys'), async (req, res) => {
   await query(`UPDATE api_keys SET revoked_at = now() WHERE id = $1 AND workspace_id = $2 AND revoked_at IS NULL`, [req.params.id, ws(req)]);
+  await audit(req, 'apikey.revoked', { target: req.params.id });
   res.json({ ok: true });
 });
 
@@ -510,15 +557,17 @@ router.post('/members', async (req, res) => {
   const { n } = await one(`SELECT count(*)::int AS n FROM memberships WHERE workspace_id = $1`, [ws(req)]);
   if (n >= MAX_MEMBERS) return bad(res, `A workspace can have at most ${MAX_MEMBERS} people`);
 
+  const role = req.body?.role === 'viewer' ? 'viewer' : 'member';
+  await audit(req, 'member.added', { target: email.replace(/^[^@]*/, '***'), meta: { role } });
   const existing = await one(`SELECT id FROM users WHERE email = $1`, [email]);
   if (existing) {
-    await query(`INSERT INTO memberships (user_id, workspace_id, role) VALUES ($1, $2, 'member') ON CONFLICT DO NOTHING`, [existing.id, ws(req)]);
+    await query(`INSERT INTO memberships (user_id, workspace_id, role) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`, [existing.id, ws(req), role]);
     return res.json({ email, invited: false, message: 'They already have an account and can now switch into this workspace.' });
   }
 
   // New person: create the account with a random password nobody knows, and let them set their own.
   const user = await one(`INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id`, [email, await hash(crypto.randomBytes(24).toString('hex'))]);
-  await query(`INSERT INTO memberships (user_id, workspace_id, role) VALUES ($1, $2, 'member')`, [user.id, ws(req)]);
+  await query(`INSERT INTO memberships (user_id, workspace_id, role) VALUES ($1, $2, $3)`, [user.id, ws(req), role]);
   const link = resetLink(await createResetToken(user.id, 72));
   let emailed = false;
   try {
@@ -538,8 +587,9 @@ router.post('/members', async (req, res) => {
 router.delete('/members/:userId', async (req, res) => {
   if (!(await canManageTeam(req))) return res.status(403).json({ error: 'Only the workspace owner can remove people' });
   if (!/^\d{1,9}$/.test(req.params.userId)) return bad(res, 'bad id');
-  const done = await one(`DELETE FROM memberships WHERE workspace_id = $1 AND user_id = $2 AND role = 'member' RETURNING user_id`, [ws(req), Number(req.params.userId)]);
+  const done = await one(`DELETE FROM memberships WHERE workspace_id = $1 AND user_id = $2 AND role IN ('member', 'viewer') RETURNING user_id`, [ws(req), Number(req.params.userId)]);
   if (!done) return bad(res, 'That person cannot be removed');
+  await audit(req, 'member.removed', { target: done.user_id });
   res.json({ ok: true });
 });
 
@@ -602,7 +652,8 @@ const sendCsv = (res, name, lines) => {
   res.send('\uFEFF' + lines.join('\r\n') + '\r\n');
 };
 
-router.get('/contacts/export', exportLimit, async (req, res) => {
+router.get('/contacts/export', exportLimit, needOwner('export contacts'), async (req, res) => {
+  await audit(req, 'contacts.exported');
   const rows = await many(
     `SELECT c.email, c.first_name, c.last_name, c.status, c.consent_source, c.consent_at, c.created_at, c.attributes,
        (SELECT string_agg(l.name, '; ' ORDER BY l.name) FROM list_contacts lc JOIN lists l ON l.id = lc.list_id WHERE lc.contact_id = c.id) AS lists
@@ -614,7 +665,8 @@ router.get('/contacts/export', exportLimit, async (req, res) => {
   ]);
 });
 
-router.get('/campaigns/:id/export', exportLimit, async (req, res) => {
+router.get('/campaigns/:id/export', exportLimit, needOwner('export reports'), async (req, res) => {
+  await audit(req, 'campaign.exported', { target: req.params.id });
   const c = await one(`SELECT name FROM campaigns WHERE id = $1 AND workspace_id = $2`, [req.params.id, ws(req)]);
   if (!c) return res.status(404).json({ error: 'not found' });
   const rows = await many(

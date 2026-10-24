@@ -8,8 +8,9 @@ export const verify = (pw, h) => bcrypt.compare(pw, h);
 // Compared against when the user does not exist, so login timing does not reveal valid emails.
 export const DUMMY_HASH = bcrypt.hashSync('not-a-real-password', 10);
 
+// Sessions end on their own after SESSION_HOURS (default 7 days), and can be ended early for one user.
 export const sign = (user) =>
-  jwt.sign({ uid: user.id, email: user.email }, SECRET, { expiresIn: '7d', algorithm: 'HS256' });
+  jwt.sign({ uid: user.id, email: user.email }, SECRET, { expiresIn: `${Number(process.env.SESSION_HOURS) || 168}h`, algorithm: 'HS256' });
 
 export async function requireAuth(req, res, next) {
   const header = req.headers.authorization || '';
@@ -20,11 +21,12 @@ export async function requireAuth(req, res, next) {
   } catch {
     return res.status(401).json({ error: 'invalid token' });
   }
-  // A password change or reset signs out every older session.
-  const u = await one(`SELECT password_changed_at FROM users WHERE id = $1`, [req.user.uid]);
+  // A password change, a reset, or "sign out everywhere" ends every older session.
+  const u = await one(`SELECT password_changed_at, sessions_valid_after FROM users WHERE id = $1`, [req.user.uid]);
   if (!u) return res.status(401).json({ error: 'account no longer exists' });
-  if (u.password_changed_at && req.user.iat < Math.floor(new Date(u.password_changed_at).getTime() / 1000)) {
-    return res.status(401).json({ error: 'You were signed out because the password changed. Sign in again.' });
+  const cutoff = Math.max(...[u.password_changed_at, u.sessions_valid_after].filter(Boolean).map((d) => Math.floor(new Date(d).getTime() / 1000)), 0);
+  if (cutoff && req.user.iat < cutoff) {
+    return res.status(401).json({ error: 'You were signed out. Sign in again.' });
   }
   next();
 }

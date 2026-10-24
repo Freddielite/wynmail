@@ -10,6 +10,7 @@ import { isEmail, normEmail, cleanName, cleanText, cleanAttrs, senderAllowed } f
 import { rateLimit } from '../rateLimit.js';
 import { sentToday } from '../usage.js';
 import { assessEmail } from '../hygiene.js';
+import { idempotent } from '../idempotency.js';
 
 const router = Router();
 const fail = (res, status, error) => res.status(status).json({ error });
@@ -121,7 +122,8 @@ router.get('/campaigns/:id', async (req, res) => {
 
 /* ---------- single transactional email ---------- */
 // No unsubscribe footer and no link tracking. Still bound by the approved sending domain and the daily cap.
-router.post('/emails', async (req, res) => {
+// Send an Idempotency-Key header (8-100 chars) and a retried request replays the first answer instead of sending twice.
+router.post('/emails', idempotent(async (req, res) => {
   const b = req.body || {};
   const ws = req.workspace;
   const to = normEmail(b.to);
@@ -171,7 +173,7 @@ router.post('/emails', async (req, res) => {
     await query(`UPDATE api_emails SET status = 'failed', error = $2 WHERE id = $1`, [rec.id, String(err.message).slice(0, 500)]);
     res.status(502).json({ id: rec.id, error: `Delivery failed: ${String(err.message).slice(0, 300)}` });
   }
-});
+}));
 
 router.use((_req, res) => fail(res, 404, 'Unknown endpoint.'));
 

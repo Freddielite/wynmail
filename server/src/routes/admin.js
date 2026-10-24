@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { many, one, query } from '../db.js';
 import { hash, requireAuth, requireAdmin, publicWorkspace } from '../auth.js';
 import { isEmail, normEmail, DOMAIN_RE, cleanName } from '../validate.js';
+import { audit } from '../audit.js';
 
 const router = Router();
 router.use(requireAuth, requireAdmin);
@@ -42,6 +43,7 @@ router.post('/workspaces', async (req, res) => {
   );
   await query(`INSERT INTO memberships (user_id, workspace_id, role) VALUES ($1, $2, 'owner') ON CONFLICT DO NOTHING`, [owner.id, workspace.id]);
   await query(`INSERT INTO memberships (user_id, workspace_id, role) VALUES ($1, $2, 'admin') ON CONFLICT DO NOTHING`, [req.user.uid, workspace.id]);
+  await audit(req, 'admin.workspace_created', { workspaceId: workspace.id, target: workspace.id, meta: { name } });
   res.json(publicWorkspace(workspace));
 });
 
@@ -74,7 +76,17 @@ router.put('/workspaces/:id', async (req, res) => {
     [req.params.id, v.sending_domain, v.rate_per_minute, v.daily_limit, v.provider]
   );
   if (!row) return res.status(404).json({ error: 'not found' });
+  await audit(req, 'admin.workspace_updated', { workspaceId: row.id, target: row.id, meta: { fields: Object.keys(v) } });
   res.json(publicWorkspace(row));
+});
+
+// Support kill switch: signs one user out of every device at once.
+router.post('/users/:id/revoke-sessions', async (req, res) => {
+  if (!/^\d{1,9}$/.test(req.params.id)) return bad(res, 'bad id');
+  const u = await one(`UPDATE users SET sessions_valid_after = now() WHERE id = $1 RETURNING id`, [req.params.id]);
+  if (!u) return res.status(404).json({ error: 'not found' });
+  await audit(req, 'admin.sessions_revoked', { target: u.id });
+  res.json({ ok: true });
 });
 
 export default router;

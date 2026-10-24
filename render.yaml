@@ -6,7 +6,7 @@ services:
     plan: free # use starter for production, free instances sleep and pause the send queue
     buildCommand: npm install
     startCommand: npm start
-    healthCheckPath: /health
+    healthCheckPath: /health/ready
     envVars:
       - key: NODE_ENV
         value: production
@@ -25,4 +25,6 @@ services:
       - key: PUBLIC_URL
         sync: false
       - key: RESEND_API_KEY
+        sync: false
+      - key: SECURITY_CONTACT
         sync: false

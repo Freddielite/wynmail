@@ -1,0 +1,42 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  server:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: server } }
+    env:
+      USE_PGLITE: "1"
+      FORCE_PROVIDER: console
+      MX_CHECK: "off"
+      JWT_SECRET: ci-secret-ci-secret-ci-secret-123456
+      RESEND_WEBHOOK_SECRET: whsec_dGVzdHNlY3JldHRlc3RzZWNyZXQ=
+      LOG: /tmp/server.log
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: server/package-lock.json }
+      - run: npm ci
+      - run: npm audit --audit-level=high
+      - name: Unit tests
+        run: npm run test:csv && npm run test:builder && npm run test:domain
+      - name: Migrations run forward and roll back
+        run: |
+          PGLITE_DIR=/tmp/pgm npm run migrate && PGLITE_DIR=/tmp/pgm npm run migrate:down -- 2 && PGLITE_DIR=/tmp/pgm npm run migrate
+      - name: Integration tests (fresh database per suite)
+        run: |
+          for t in security api batch forms media segments quickwins hardening; do
+            rm -rf /tmp/pg; PGLITE_DIR=/tmp/pg PORT=4000 node src/index.js > /tmp/server.log 2>&1 & pid=$!
+            for i in $(seq 1 60); do curl -sf localhost:4000/health >/dev/null && break; sleep 1; done
+            node test/$t.mjs || { kill $pid; exit 1; }
+            kill $pid; wait $pid 2>/dev/null || true
+          done
+  web:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: web } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: web/package-lock.json }
+      - run: npm ci
+      - run: npm audit --audit-level=high
+      - run: npm run build

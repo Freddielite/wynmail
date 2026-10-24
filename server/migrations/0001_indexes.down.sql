@@ -1,0 +1,10 @@
+-- no-transaction
+DROP INDEX CONCURRENTLY IF EXISTS idx_events_ws_created;
+DROP INDEX CONCURRENTLY IF EXISTS idx_events_message;
+DROP INDEX CONCURRENTLY IF EXISTS idx_messages_ws_sent;
+DROP INDEX CONCURRENTLY IF EXISTS idx_messages_contact;
+DROP INDEX CONCURRENTLY IF EXISTS idx_list_contacts_contact;
+DROP INDEX CONCURRENTLY IF EXISTS idx_password_resets_user;
+DROP INDEX CONCURRENTLY IF EXISTS idx_api_keys_ws;
+DROP INDEX CONCURRENTLY IF EXISTS idx_campaigns_ws;
+DROP INDEX CONCURRENTLY IF EXISTS idx_contacts_ws_id;

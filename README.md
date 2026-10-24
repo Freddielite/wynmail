@@ -223,3 +223,17 @@ Push the repo to GitHub, then:
 - Billing and plan limits
 - Outbound webhooks to clients
 - Roles beyond owner and admin
+
+## Production hardening
+
+See `AUDIT.md` for the full checklist with status, and `RUNBOOK.md` for deploy, rollback, restore and incident steps.
+
+- **Migrations:** `schema.sql` is the baseline. Later changes are `server/migrations/*.up.sql` with a matching `.down.sql`. They run on boot. `npm run migrate:status`, `migrate:down`.
+- **Sessions:** `SESSION_HOURS` sets expiry. `POST /api/auth/logout-all` signs a user out everywhere. Admins can end a user's sessions.
+- **Sign-in lockout:** after `LOGIN_MAX_FAILS` failures in 15 minutes, addresses that never signed in to that account in 30 days are refused. The usual address still works.
+- **Roles:** owner, member, viewer (read only). API keys, exports, provider keys and the activity log are owner only. Invite with `{"email": "...", "role": "viewer"}`.
+- **Activity log:** `GET /api/workspaces/:id/audit` (owner). Never contains secrets.
+- **Undo:** deleted lists and templates are kept 30 days. `GET /deleted`, `POST /deleted/:id/restore`.
+- **Idempotency:** send `Idempotency-Key: <8-100 chars>` with `POST /v1/emails`. A retry replays the first answer.
+- **Paging:** `GET /contacts?limit=100&cursor=<id>`; the next cursor is in the `X-Next-Cursor` header.
+- **Tests:** `test:hardening` covers all of the above.

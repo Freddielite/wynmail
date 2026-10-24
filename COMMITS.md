@@ -79,3 +79,16 @@
 77. `feat(prefs): turn the unsubscribe page into a preference center with topics, weekly limits and pauses, and keep list opt-outs from being undone by imports or the API`
 78. `test: add deliverability unit and integration suites`
 79. `docs: describe deliverability and safety features and refresh the not-yet-built list`
+80. `feat(db): add versioned migrations with rollback, an advisory lock and concurrent index builds, plus pool timeouts and a statement timeout`
+81. `perf(db): add indexes for events, messages, contacts, campaigns, list members, resets and keys`
+82. `feat(auth): add sign out everywhere, an admin session kill switch and a configurable session length`
+83. `feat(auth): add a database-counted login lockout that spares addresses the owner already uses`
+84. `feat(audit): add an audit log with secret redaction, an owner-only endpoint and automatic retention`
+85. `feat(roles): add a read-only viewer role and make API keys, exports and provider secrets owner only`
+86. `feat(data): keep deleted lists and templates for 30 days with a restore endpoint`
+87. `feat(api): add Idempotency-Key to POST /v1/emails and cursor paging for contacts`
+88. `feat(ops): add request ids and structured logs, readiness check, graceful shutdown, housekeeping job and security.txt`
+89. `ci: run audit, unit, migration round trip and integration suites on every push, and enable monthly Dependabot`
+90. `fix(web): upgrade Vite to clear two high advisories and add security headers on Vercel`
+91. `docs: add AUDIT.md, RUNBOOK.md, a restore drill script and a hardening section in the README`
+92. `test: add hardening suite`

@@ -4,11 +4,14 @@ import { hash, verify, sign, requireAuth, publicWorkspace, DUMMY_HASH } from '..
 import { isEmail, normEmail, cleanName } from '../validate.js';
 import { rateLimit } from '../rateLimit.js';
 import { createResetToken, consumeResetToken, resetLink } from '../resets.js';
+import { audit } from '../audit.js';
+import { hmac } from '../config.js';
 import { sendSystemEmail, actionEmail } from '../sysmail.js';
 
 const router = Router();
 const slugify = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'workspace';
 const byIp = rateLimit({ windowMs: 15 * 60 * 1000, max: 40 });
+const passwordLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 8, key: (req) => `p|${req.user?.uid}` });
 const byAccount = rateLimit({ windowMs: 15 * 60 * 1000, max: 8, key: (req) => `${req.ip}|${normEmail(req.body?.email)}` });
 
 router.post('/register', byIp, async (req, res) => {
@@ -47,18 +50,43 @@ router.post('/register', byIp, async (req, res) => {
   res.json({ token: sign(user), user: { id: user.id, email: user.email, name: user.name }, workspace: publicWorkspace(workspace) });
 });
 
+// Lockout that stops attackers without locking out the real owner. After MAX_FAILS failures in 15 minutes
+// (counted in the database, so restarts and extra servers do not reset it), sign-ins from addresses that have
+// never signed in to this account are refused. An address that has signed in within 30 days still works.
+const MAX_FAILS = Number(process.env.LOGIN_MAX_FAILS || 20);
+async function lockedOut(emailKey, user, ip) {
+  const { n } = await one(`SELECT count(*)::int AS n FROM audit_log WHERE action = 'login.failed' AND target = $1 AND created_at > now() - interval '15 minutes'`, [emailKey]);
+  if (n < MAX_FAILS) return false;
+  if (!user) return true; // same answer whether or not the account exists
+  return !(await one(`SELECT 1 FROM audit_log WHERE actor_user_id = $1 AND action = 'login.ok' AND ip = $2 AND created_at > now() - interval '30 days' LIMIT 1`, [user.id, String(ip || '')]));
+}
+
 router.post('/login', byIp, byAccount, async (req, res) => {
   const email = normEmail(req.body?.email);
+  const emailKey = hmac(`login|${email}`).slice(0, 32); // a hash, so the log never holds addresses of accounts that do not exist
   const password = typeof req.body?.password === 'string' ? req.body.password : '';
   const user = await one(`SELECT * FROM users WHERE email = $1`, [email]);
+  if (await lockedOut(emailKey, user, req.ip)) {
+    return res.status(429).json({ error: 'Too many failed sign-in attempts. Try again in a few minutes, or reset your password.' });
+  }
   const ok = await verify(password, user ? user.password_hash : DUMMY_HASH);
-  if (!user || !ok) return res.status(401).json({ error: 'invalid credentials' });
+  if (!user || !ok) {
+    await audit(req, 'login.failed', { actorId: user?.id ?? null, target: emailKey });
+    return res.status(401).json({ error: 'invalid credentials' });
+  }
+  await audit(req, 'login.ok', { actorId: user.id, target: emailKey });
   res.json({ token: sign(user), user: { id: user.id, email: user.email, name: user.name } });
+});
+
+// Ends every session for the signed-in user, on every device. The caller gets a fresh token and stays signed in.
+router.post('/logout-all', requireAuth, passwordLimit, async (req, res) => {
+  const user = await one(`UPDATE users SET sessions_valid_after = now() WHERE id = $1 RETURNING id, email`, [req.user.uid]);
+  await audit(req, 'sessions.revoked_all', { actorId: user.id, target: user.id });
+  res.json({ token: sign(user) });
 });
 
 const forgotIp = rateLimit({ windowMs: 15 * 60 * 1000, max: 10 });
 const forgotEmail = rateLimit({ windowMs: 60 * 60 * 1000, max: 3, key: (req) => `f|${normEmail(req.body?.email)}` });
-const passwordLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 8, key: (req) => `p|${req.user?.uid}` });
 const okPassword = (pw) => typeof pw === 'string' && pw.length >= 8 && pw.length <= 128;
 
 // Same answer whether or not the account exists, and it answers before doing any work.
@@ -69,6 +97,7 @@ router.post('/forgot', forgotIp, forgotEmail, async (req, res) => {
   try {
     const user = await one(`SELECT id, email FROM users WHERE email = $1`, [email]);
     if (!user) return;
+    await audit(req, 'password.reset_requested', { actorId: user.id, target: user.id });
     const link = resetLink(await createResetToken(user.id, 1));
     const { html, text } = actionEmail({
       heading: 'Reset your Wynmail password',
@@ -92,6 +121,7 @@ router.post('/reset', byIp, async (req, res) => {
   if (!userId) return res.status(400).json({ error: 'This link is invalid or has expired. Request a new one.' });
   await query(`UPDATE users SET password_hash = $2, password_changed_at = now() WHERE id = $1`, [userId, await hash(password)]);
   await query(`UPDATE password_resets SET used_at = COALESCE(used_at, now()) WHERE user_id = $1`, [userId]);
+  await audit(req, 'password.reset', { actorId: userId, target: userId });
   res.json({ ok: true });
 });
 
@@ -104,6 +134,7 @@ router.post('/password', requireAuth, passwordLimit, async (req, res) => {
   }
   if (next === current) return res.status(400).json({ error: 'Choose a password different from the current one' });
   await query(`UPDATE users SET password_hash = $2, password_changed_at = now() WHERE id = $1`, [user.id, await hash(next)]);
+  await audit(req, 'password.changed', { actorId: user.id, target: user.id });
   res.json({ token: sign(user) }); // the caller stays signed in, every other session ends
 });
 
