@@ -15,7 +15,7 @@ const outcome = (m) => {
   if (m.delivered_at) return { label: 'delivered', cls: 'green' };
   return { label: m.status, cls: m.status === 'sent' ? 'green' : m.status === 'failed' ? 'red' : 'gray' };
 };
-const pillClass = { draft: 'gray', scheduled: 'amber', sending: 'live', sent: 'green' };
+const pillClass = { draft: 'gray', scheduled: 'amber', sending: 'live', sent: 'green', needs_review: 'amber' };
 
 export default function Campaigns() {
   const guard = useGuard();
@@ -30,6 +30,7 @@ export default function Campaigns() {
   const [messages, setMessages] = useState([]);
   const [check, setCheck] = useState(null);
   const [resend, setResend] = useState(null);
+  const [risk, setRisk] = useState(null); // a campaign held because it may land in spam
 
   const [segments, setSegments] = useState([]);
   const loadAll = async () => {
@@ -132,6 +133,7 @@ export default function Campaigns() {
     const id = await persist(null, true);
     const res = await api.sendCampaign(id);
     reset(); await loadAll();
+    if (res.held) { setRisk(res); return 'Held for review. Nothing was sent'; }
     if (draft.ab) return `Test started. The first ${res.queued} people are being split between your two subjects`;
     return `Sending to ${res.queued} ${res.queued === 1 ? 'subscriber' : 'subscribers'}`;
   });
@@ -139,8 +141,18 @@ export default function Campaigns() {
   const sendRow = (id) => guard(async () => {
     const res = await api.sendCampaign(id);
     await loadAll();
+    if (res.held) { setRisk(res); return 'Held for review. Nothing was sent'; }
     return `Sending to ${res.queued} ${res.queued === 1 ? 'subscriber' : 'subscribers'}`;
   });
+
+  const review = (c) => setRisk({ campaign_id: c.id, risk: c.risk_score, reasons: c.risk_reasons || [], threshold: null });
+  const sendAnyway = guard(async () => {
+    const res = await api.sendCampaign(risk.campaign_id, true);
+    setRisk(null); await loadAll();
+    return `Sending to ${res.queued} ${res.queued === 1 ? 'subscriber' : 'subscribers'}`;
+  });
+  const fixIt = () => { const c = campaigns.find((x) => x.id === risk.campaign_id); setRisk(null); if (c) edit(c); };
+  const resume = (c) => guard(async () => { const r = await api.resumeCampaign(c.id); await loadAll(); return `Sending resumed for ${r.resumed} emails`; });
 
   const showPreview = (id) => guard(async () => {
     setPreview((await api.campaignPreview(id)).html);
@@ -278,6 +290,21 @@ export default function Campaigns() {
         </div>
       )}
 
+      {risk && (
+        <div className="card" style={{ marginBottom: 20, borderColor: '#f59e0b' }}>
+          <div className="between"><h3>Held: this email may land in spam</h3><button className="btn ghost sm" onClick={() => setRisk(null)}>Close</button></div>
+          <p style={{ margin: '6px 0 10px' }}>Risk <strong>{risk.risk}</strong> out of 100{risk.threshold ? ` (your limit is ${risk.threshold})` : ''}. <strong>Nothing was sent.</strong>
+            {risk.samples > 0 && <span className="muted"> Based on the rules and on {risk.samples} of your past campaigns.</span>}</p>
+          <ul style={{ margin: '0 0 12px 18px' }}>
+            {(risk.reasons || []).map((r, i) => <li key={i}><strong>{r.title}</strong>{r.detail ? <span className="muted"> {r.detail}</span> : null}</li>)}
+          </ul>
+          <div className="row">
+            <button className="btn" onClick={fixIt}>Fix it</button>
+            <Btn className="btn ghost" busyText="Sending..." onClick={() => (window.confirm('Send anyway? This is recorded in the activity log.') ? sendAnyway() : undefined)}>Send anyway</Btn>
+          </div>
+        </div>
+      )}
+
       {resend && (
         <div className="card" style={{ marginTop: 18 }}>
           <div className="between"><h3>Resend to people who did nothing</h3><button className="btn ghost sm" onClick={() => setResend(null)}>Cancel</button></div>
@@ -301,6 +328,8 @@ export default function Campaigns() {
                   <td data-label="List">{c.list_name || (c.segment_name ? `Segment: ${c.segment_name}` : '-')}</td>
                   <td data-label="Status">
                     <span className={`pill ${pillClass[c.status] || 'gray'}${c.status === 'sending' ? ' live' : ''}`}>{c.status}</span>
+                    {c.status === 'needs_review' && <div className="muted">Held. Risk {c.risk_score}/100</div>}
+                    {c.status === 'sending' && c.paused_reason && <div style={{ color: '#b45309', fontSize: 12 }}>Paused: {c.paused_reason}</div>}
                     {c.status === 'scheduled' && <div className="muted">{c.local_time ? `${(c.local_at || '').replace('T', ' ')} local time` : when(c.scheduled_at)}</div>}
                     {c.status === 'sending' && c.held > 0 && <div className="muted">{c.held} waiting for the test result</div>}
                     {c.status === 'sending' && c.timed_waiting > 0 && <div className="muted">{c.timed_waiting} waiting for their time</div>}
@@ -320,6 +349,13 @@ export default function Campaigns() {
                     <Btn className="btn ghost sm" busyText="Loading..." onClick={openReport(c)}>Report</Btn>{' '}
                     <Btn className="btn ghost sm" busyText="Copying..." onClick={duplicate(c)}>Duplicate</Btn>{' '}
                     {c.status === 'sent' && !c.resent && !c.resend_of_name && c.non_openers > 0 && <><button className="btn ghost sm" onClick={() => startResend(c)}>Resend to {c.non_openers} who did nothing</button>{' '}</>}
+                    {c.status === 'needs_review' && (
+                      <>
+                        <button className="btn sm" onClick={() => review(c)}>Review</button>{' '}
+                        <button className="btn ghost sm" onClick={() => edit(c)}>Edit</button>{' '}
+                      </>
+                    )}
+                    {c.status === 'sending' && c.paused_reason && <Btn className="btn sm" busyText="Resuming..." onClick={resume(c)}>Resume</Btn>}
                     {['draft', 'scheduled'].includes(c.status) && (
                       <>
                         <button className="btn ghost sm" onClick={() => edit(c)}>Edit</button>{' '}

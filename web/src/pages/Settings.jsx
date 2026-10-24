@@ -26,6 +26,7 @@ export default function Settings({ admin }) {
       footer_address: form.footer_address || '', tracking_domain: form.tracking_domain || '', default_timezone: form.default_timezone || 'Africa/Lagos',
       block_disposable: !!form.block_disposable, block_role: !!form.block_role, check_mx: !!form.check_mx, preference_center: !!form.preference_center
     };
+    if (form.role === 'owner' || admin) Object.assign(body, { risk_hold_enabled: form.risk_hold_enabled !== false, risk_threshold: Number(form.risk_threshold || 60) });
     if (admin) {
       Object.assign(body, { sending_domain: form.sending_domain || '', provider: form.provider,
         rate_per_minute: Number(form.rate_per_minute), daily_limit: Number(form.daily_limit) });
@@ -152,6 +153,16 @@ export default function Settings({ admin }) {
         <div className="card">
           <h3>List protection</h3>
           <p className="muted" style={{ margin: '4px 0 14px' }}>Applies to signup forms, the API, imports and adding contacts by hand.</p>
+          {(form.role === 'owner' || admin) && (
+            <div style={{ margin: '14px 0' }}>
+              <label className="optline"><input type="checkbox" checked={form.risk_hold_enabled !== false} onChange={tick('risk_hold_enabled')} /><span>Hold emails that look like spam and ask me first. It learns from how your past campaigns did.</span></label>
+              {form.risk_hold_enabled !== false && (
+                <div className="field" style={{ marginTop: 8 }}><label>Hold when the risk is at least (10 to 100)</label>
+                  <input type="number" min="10" max="100" value={form.risk_threshold ?? 60} onChange={set('risk_threshold')} style={{ maxWidth: 120 }} />
+                  <div className="muted">Lower holds more emails. Held emails are never sent until you choose "Send anyway".</div></div>
+              )}
+            </div>
+          )}
           <label className="optline"><input type="checkbox" checked={!!form.block_disposable} onChange={tick('block_disposable')} /><span>Refuse disposable inboxes<small>Throwaway addresses like mailinator.com. Typos such as gmial.com are always caught, with a suggested fix.</small></span></label>
           <label className="optline"><input type="checkbox" checked={!!form.check_mx} onChange={tick('check_mx')} /><span>Check that the domain can receive mail<small>Refuses addresses at domains that do not exist. A failed lookup never blocks anyone.</small></span></label>
           <label className="optline"><input type="checkbox" checked={!!form.block_role} onChange={tick('block_role')} /><span>Refuse shared inboxes<small>Addresses like info@ and support@. Off by default, since some businesses need them.</small></span></label>

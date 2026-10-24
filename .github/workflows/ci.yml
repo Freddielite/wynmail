@@ -8,23 +8,25 @@ jobs:
       USE_PGLITE: "1"
       FORCE_PROVIDER: console
       MX_CHECK: "off"
-      JWT_SECRET: ci-secret-ci-secret-ci-secret-123456
-      RESEND_WEBHOOK_SECRET: whsec_dGVzdHNlY3JldHRlc3RzZWNyZXQ=
       LOG: /tmp/server.log
     steps:
       - uses: actions/checkout@v4
+      - name: Throwaway test secrets, generated per run (nothing secret is stored in the repo)
+        run: |
+          echo "JWT_SECRET=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+          echo "RESEND_WEBHOOK_SECRET=$(openssl rand -base64 24)" >> "$GITHUB_ENV"
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm, cache-dependency-path: server/package-lock.json }
       - run: npm ci
       - run: npm audit --audit-level=high
       - name: Unit tests
-        run: npm run test:csv && npm run test:builder && npm run test:domain
+        run: npm run test:csv && npm run test:builder && npm run test:domain && npm run test:spamrisk && node test/deliverability-unit.mjs && node test/results-unit.mjs
       - name: Migrations run forward and roll back
         run: |
           PGLITE_DIR=/tmp/pgm npm run migrate && PGLITE_DIR=/tmp/pgm npm run migrate:down -- 2 && PGLITE_DIR=/tmp/pgm npm run migrate
       - name: Integration tests (fresh database per suite)
         run: |
-          for t in security api batch forms media segments quickwins hardening; do
+          for t in security api batch forms media segments quickwins hardening features; do
             rm -rf /tmp/pg; PGLITE_DIR=/tmp/pg PORT=4000 node src/index.js > /tmp/server.log 2>&1 & pid=$!
             for i in $(seq 1 60); do curl -sf localhost:4000/health >/dev/null && break; sleep 1; done
             node test/$t.mjs || { kill $pid; exit 1; }

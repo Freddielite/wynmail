@@ -51,7 +51,7 @@ export default function ContactProfile() {
     await api.unblockContact(id, true); await load(); return 'They can receive emails again';
   });
   const remove = guard(async () => {
-    if (!window.confirm(`Delete ${c.email} and their history? This cannot be undone.`)) return;
+    if (!window.confirm(`Delete ${c.email}? They are kept for 30 days in Team > Recently deleted, then removed for good. Their email history does not come back if restored.`)) return;
     await api.deleteContact(id); nav('/contacts'); return 'Contact deleted';
   });
   const memberOf = new Set(data.lists.map((l) => l.id));

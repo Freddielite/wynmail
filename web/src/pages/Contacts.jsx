@@ -65,7 +65,7 @@ export default function Contacts() {
   });
 
   const remove = (id) => guard(async () => {
-    if (!window.confirm('Delete this contact?')) return;
+    if (!window.confirm('Delete this contact? You can restore them from Team > Recently deleted for 30 days.')) return;
     await api.deleteContact(id);
     await load();
     return 'Contact deleted';

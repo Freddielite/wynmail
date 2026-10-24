@@ -21,6 +21,8 @@ export async function requireAuth(req, res, next) {
   } catch {
     return res.status(401).json({ error: 'invalid token' });
   }
+  // A half-finished sign-in (password done, MFA not) is not a session.
+  if (req.user.purpose) return res.status(401).json({ error: 'invalid token' });
   // A password change, a reset, or "sign out everywhere" ends every older session.
   const u = await one(`SELECT password_changed_at, sessions_valid_after FROM users WHERE id = $1`, [req.user.uid]);
   if (!u) return res.status(401).json({ error: 'account no longer exists' });
@@ -35,7 +37,7 @@ export async function requireWorkspace(req, res, next) {
   const raw = req.params.workspaceId;
   if (!/^\d{1,9}$/.test(String(raw))) return res.status(400).json({ error: 'bad workspace id' });
   const row = await one(
-    `SELECT w.*, m.role FROM workspaces w
+    `SELECT w.*, m.role, m.permissions FROM workspaces w
      JOIN memberships m ON m.workspace_id = w.id
      WHERE w.id = $1 AND m.user_id = $2`,
     [Number(raw), req.user.uid]

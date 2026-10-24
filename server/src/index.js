@@ -14,6 +14,8 @@ import webhookRoutes from './routes/webhooks.js';
 import formRoutes from './routes/forms.js';
 import { publicMedia } from './routes/media.js';
 import { startWorker } from './queue.js';
+import ssoRoutes from './routes/sso.js';
+import scimRoutes from './routes/scim.js';
 
 const app = express();
 app.set('trust proxy', 1);
@@ -34,6 +36,8 @@ app.use((req, res, next) => {
 // The tracking pixel is embedded by mail clients, so it must be loadable cross-origin.
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 app.use('/webhooks', webhookRoutes);
+app.use('/scim/v2', scimRoutes);
+app.use('/sso', ssoRoutes);
 app.use(express.json({ limit: '2mb' }));
 
 const origins = (process.env.FRONTEND_URL || 'http://localhost:5173').split(',').map((s) => s.trim().replace(/\/+$/, ''));
@@ -79,7 +83,11 @@ const housekeeping = async () => {
   // Unconfirmed signups are personal data we no longer need after their link expires plus 30 days.
   await run(`DELETE FROM form_signups WHERE confirmed_at IS NULL AND expires_at < now() - interval '30 days'`);
   await run(`DELETE FROM password_resets WHERE expires_at < now() - interval '7 days' OR used_at < now() - interval '7 days'`);
+  await run(`DELETE FROM saml_requests WHERE created_at < now() - interval '1 hour'`);
   await run(`DELETE FROM idempotency_keys WHERE created_at < now() - interval '24 hours'`);
+  // Signup logs of contacts whose undo window ended go with them (unless the address was added again).
+  await run(`DELETE FROM form_signups fs USING deleted_records d WHERE d.kind = 'contact' AND d.purge_after < now() AND fs.workspace_id = d.workspace_id
+    AND fs.email = d.data->'row'->>'email' AND NOT EXISTS (SELECT 1 FROM contacts c WHERE c.workspace_id = fs.workspace_id AND c.email = fs.email)`);
   await run(`DELETE FROM deleted_records WHERE purge_after < now()`);
   await run(`DELETE FROM audit_log WHERE created_at < now() - ($1 || ' days')::interval`, [String(AUDIT_DAYS)]);
   if (EVENT_DAYS > 0) await run(`DELETE FROM events WHERE created_at < now() - ($1 || ' days')::interval`, [String(EVENT_DAYS)]);

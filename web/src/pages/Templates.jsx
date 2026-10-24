@@ -29,7 +29,7 @@ export default function Templates() {
   });
 
   const remove = (id) => guard(async () => {
-    if (!window.confirm('Delete this template?')) return;
+    if (!window.confirm('Delete this template? You can restore it from Team > Recently deleted for 30 days.')) return;
     await api.deleteTemplate(id);
     await load();
     return 'Template deleted';

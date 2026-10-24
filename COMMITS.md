@@ -92,3 +92,14 @@
 90. `fix(web): upgrade Vite to clear two high advisories and add security headers on Vercel`
 91. `docs: add AUDIT.md, RUNBOOK.md, a restore drill script and a hardening section in the README`
 92. `test: add hardening suite`
+93. `feat(spam): score campaigns before sending, hold risky ones for owner review, and learn per workspace from complaints, bounces and opens`
+94. `feat(spam): pause the unsent rest of a campaign on a complaint or bounce spike, with notifications in the app and by email`
+95. `feat(auth): add TOTP two-step sign-in with recovery codes, replay protection and an admin reset`
+96. `feat(roles): add 14 per-feature permissions with role defaults, per-person overrides and central route checks`
+97. `feat(data): keep deleted contacts for 30 days with restore, and add permanent erase for privacy requests`
+98. `feat(sso): add SAML 2.0 sign-in with signed assertions, DB-backed request tracking, domain binding and optional enforcement`
+99. `feat(scim): add SCIM 2.0 user provisioning and deprovisioning with revocable tokens`
+100. `feat(web): add MFA, permissions, recently deleted, activity log, SSO info, spam-risk review and notifications screens`
+101. `fix(ci): stop committing a test secret that GitHub flagged; generate throwaway secrets per run and fix the audit step`
+102. `fix(test): wait for the import automation email instead of sleeping a fixed 3 seconds`
+103. `chore(deps): fix body-parser and zod advisories and add node-saml`

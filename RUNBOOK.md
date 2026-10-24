@@ -36,3 +36,19 @@ Mail arrives at `SECURITY_CONTACT`. Acknowledge in 2 working days, fix, deploy, 
 - `audit write failed`: audit table or DB trouble; requests still work.
 - `idle pg client error`: DB restarted or dropped a connection; the pool recovers.
 - Queue stuck: messages `sending` for over 10 minutes are re-queued automatically.
+
+## Two-step sign-in: someone lost their phone
+1. They use a recovery code on the sign-in screen ("I lost my phone").
+2. No codes either: confirm who they are outside the app (call a known number), then `POST /api/admin/users/:id/reset-mfa` as a platform admin. It switches MFA off and signs them out everywhere. They set it up again.
+
+## Onboarding an enterprise customer on SSO
+1. Set `PUBLIC_URL` on the API to its https address.
+2. Give their IT team the three values from Team > Single sign-on: Entity ID, Reply URL (ACS), SCIM base URL.
+3. They send back the sign-in URL, entity ID and signing certificate. As a platform admin: `PUT /api/workspaces/:id/sso` with `idp_sso_url`, `idp_entity_id`, `idp_cert`, `domains` (only domains the customer owns), `enabled: true`.
+4. Mint a SCIM token (`POST /api/workspaces/:id/scim-tokens`), give it to their IT team once.
+5. Test with one person before `enforce: true`. Platform admins and the workspace owner can still use a password after enforcing.
+6. Offboarding: IT deactivates the person in their identity provider, SCIM removes the membership, and access ends on the next request.
+
+## Held or paused campaigns
+- Held (`needs_review`): open the campaign, read the reasons, fix it or send it anyway. Raise the threshold in Settings if it holds good email.
+- Paused: complaints or bounces spiked mid-send. Check the list source and the email, then Resume or leave it stopped.

@@ -8,10 +8,10 @@ Checked against the "what a vibe-coded app still needs" list. Status: **DONE** a
 | Schema someone designed | PARTIAL | Tenant column on every table, FKs, unique keys. Baseline is `schema.sql`; everything new goes in `migrations/`. Roles are free text, not an enum. |
 | Login with a plus sign in the email | DONE | `+` is accepted and kept. Apostrophes in the local part (`o'brien@x.com`) are refused by `EMAIL_RE`: GAP, low. |
 | Reset links expire, work once | DONE | 1 hour, hashed, single use, old links killed on use. Invites 72 hours. |
-| MFA and recovery | GAP | Not built. Next: TOTP plus 10 recovery codes. |
+| MFA and recovery | ADDED | TOTP (authenticator app), codes can't be replayed, 10 single-use recovery codes, lockout after 10 wrong codes, re-auth to turn off. Lost phone and codes: admin `reset-mfa`. |
 | Sessions time out, kill all for one user | ADDED | `SESSION_HOURS` (default 7d). `POST /api/auth/logout-all`. Admin `POST /api/admin/users/:id/revoke-sessions`. Password change and reset already did it. |
-| SSO, SAML, SCIM | GAP | Not built. Do only when a customer signs on condition of it. |
-| Roles deeper than admin/everyone | PARTIAL | owner, member, **viewer (new, read only)**, platform admin. Owner-only: API keys, exports, provider secrets, activity log, team. No per-feature permissions. |
+| SSO, SAML, SCIM | ADDED | SAML 2.0 (signed assertions only, request IDs kept in Postgres, replay and tampering refused), per-workspace domains, optional enforce; SCIM 2.0 Users create/read/patch/delete with revocable tokens. Only Wyntek admins can edit SSO settings. IdP-initiated login is not supported. |
+| Roles deeper than admin/everyone | ADDED | 14 per-feature permissions, role defaults (owner, member, viewer), per-person overrides. Every route is checked centrally; a new route is closed until listed in `perms.js`. |
 | User A cannot read user B's data by changing a number | DONE | Every query carries `workspace_id`; foreign ids are checked (`ownsList`, `ownsSegment`). Covered by `test:security`, `test:api`, `test:media`. |
 | Tenant isolation | DONE | App-level scoping plus RLS on every table. No Postgres RLS policies for the app role: one missed `WHERE` leaks. Acceptable now, review before the 3rd engineer. |
 | Admin "log in as this user" with audit | N/A | No impersonation exists. Platform admin is a member of each client workspace, and admin actions are now audited. |
@@ -26,7 +26,7 @@ Checked against the "what a vibe-coded app still needs" list. Status: **DONE** a
 | Indexes | ADDED | 9 indexes on events, messages, contacts, campaigns, list_contacts, resets, api_keys. |
 | Connection pooling | PARTIAL | Pool max 5, connect and idle timeouts, 30s statement timeout added. Use the Supabase pooler URL (README). |
 | Nightly backups, tested restore, PITR | ORG | Supabase does backups; PITR is a paid add-on: **turn it on**. `scripts/restore-drill.sh` proves a restore. Run it quarterly. |
-| Soft deletes | PARTIAL | Lists and templates: 30-day undo (`GET /deleted`, `POST /deleted/:id/restore`). Contacts stay hard-deleted on purpose (erasure promise); the audit log records the id. Campaigns, forms, segments, automations: GAP. |
+| Soft deletes | PARTIAL | Lists, templates and contacts: 30-day undo. `?permanent=1` or "Erase now" (owner) erases at once for privacy requests. A restored contact keeps tags and list membership but not past email history. Campaigns, forms, segments, automations: GAP. |
 | Server-side validation | DONE | Everywhere inspected: zod/regex/length caps on every route. |
 | Timezones | DONE | Stored UTC, per-contact and per-workspace zones, local-time sends. |
 | Apostrophes, emoji, accents, RTL | DONE | Names accept all; merge output is HTML-escaped. Email local-part apostrophe: see above. |
@@ -102,10 +102,13 @@ Checked against the "what a vibe-coded app still needs" list. Status: **DONE** a
 | Admin panel, support tooling | PARTIAL | Clients page; activity log API is there, no UI yet. |
 | Accounts in the company's name, bus factor | ORG | Check GitHub, Render, Vercel, Supabase, Resend, domain registrar are all under Wyntek. |
 
+## Spam-risk guard (added at your request)
+A campaign is scored before it sends: the content checker's rules, blended with a model trained on this workspace's own past campaigns (complaints, hard bounces, opens far below normal). Above the threshold it is held, not sent; the owner gets an in-app notification and an email, and chooses Fix it or Send anyway (logged). While a campaign is sending, a complaint rate of 0.5% or hard bounces of 10% pause the unsent rest and notify the owner. Nothing can see the spam folder, so this is an estimate that improves with use; it needs about 8 sent campaigns, including some that did badly, before the model has a say.
+
 ## Do these next (in order)
 1. Turn on Supabase PITR; set `PG_SSL_CA`, `ENCRYPTION_KEY`, `SECURITY_CONTACT`; move Render off free.
 2. Rotate every key that has ever been in an AI chat (Resend, DB password, JWT secret).
 3. Run `scripts/restore-drill.sh` once.
 4. Turn on required CI in GitHub.
-5. Build TOTP MFA with recovery codes.
-6. Activity log screen in the web app (API ready).
+5. Everyone with access to production turns on MFA, starting with you.
+6. Before a customer relies on SSO: test with their IdP in a staging workspace, and keep one owner account on a password (break glass).

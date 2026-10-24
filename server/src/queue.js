@@ -1,3 +1,5 @@
+import { assess, learn } from './spamrisk.js';
+import { notify } from './notify.js';
 import { many, one, query } from './db.js';
 import { getProvider } from './providers/index.js';
 import { buildEmail } from './render.js';
@@ -14,21 +16,43 @@ const MAX_ATTEMPTS = 3;
 const TICK_MS = Number(process.env.QUEUE_TICK_MS || 5000);
 let running = false;
 
+// Thrown when a campaign looks too risky and is held for a person to decide. Not a failure.
+export class RiskHold extends Error {
+  constructor(result) { super('held for review'); this.result = result; }
+}
+
 export async function enqueueDueCampaigns() {
   const due = await many(
     `SELECT id FROM campaigns WHERE status = 'scheduled' AND scheduled_at IS NOT NULL AND scheduled_at <= now()`
   );
   for (const { id } of due) {
-    try { await enqueueCampaign(id); } catch (err) { console.error('[queue] enqueue', id, err.message); }
+    try { await enqueueCampaign(id); } catch (err) { if (!(err instanceof RiskHold)) console.error('[queue] enqueue', id, err.message); }
   }
 }
 
 // The status change is a single atomic UPDATE, so two simultaneous sends cannot both enqueue.
-export async function enqueueCampaign(campaignId) {
+// force: a person looked at the risk report and chose to send anyway.
+export async function enqueueCampaign(campaignId, { force = false, userId = null } = {}) {
+  const pre = await one(`SELECT c.id, c.subject, c.html, c.preview_text, c.workspace_id, c.resend_of FROM campaigns c WHERE c.id = $1 AND c.status IN ('draft','scheduled','needs_review')`, [campaignId]);
+  if (pre && !force && !pre.resend_of) {
+    const workspace = await one(`SELECT * FROM workspaces WHERE id = $1`, [pre.workspace_id]);
+    if (workspace.risk_hold_enabled) {
+      const result = await assess(workspace, { subject: pre.subject, html: pre.html, preview: pre.preview_text });
+      if (result.risk >= workspace.risk_threshold) {
+        await query(`UPDATE campaigns SET status = 'needs_review', risk_score = $2, risk_reasons = $3::jsonb WHERE id = $1`, [pre.id, result.risk, JSON.stringify(result.reasons)]);
+        await notify(workspace.id, {
+          kind: 'risk_hold', campaignId: pre.id, title: 'A campaign was held: it may land in spam',
+          body: `Risk ${result.risk} out of 100 (your limit is ${workspace.risk_threshold}). ${result.reasons[0]?.title || ''}. Nothing was sent. Open the campaign to fix it or send it anyway.`
+        });
+        throw new RiskHold({ held: true, campaign_id: pre.id, ...result, threshold: workspace.risk_threshold });
+      }
+    }
+  }
   const campaign = await one(
-    `UPDATE campaigns SET status = 'sending', started_at = now()
-     WHERE id = $1 AND status IN ('draft','scheduled') RETURNING *`,
-    [campaignId]
+    `UPDATE campaigns SET status = 'sending', started_at = now(),
+       risk_override_at = CASE WHEN $2::boolean THEN now() ELSE risk_override_at END, risk_override_by = CASE WHEN $2::boolean THEN $3::int ELSE risk_override_by END
+     WHERE id = $1 AND status IN ('draft','scheduled','needs_review') RETURNING *`,
+    [campaignId, force, userId]
   );
   if (!campaign) throw new Error('campaign not found or already sent');
 
@@ -139,7 +163,7 @@ export async function drainOnce() {
   await query(
     `UPDATE campaigns SET status = 'sent', finished_at = now()
      WHERE status = 'sending'
-       AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.campaign_id = campaigns.id AND m.status IN ('queued','sending','held'))`
+       AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.campaign_id = campaigns.id AND m.status IN ('queued','sending','held','paused'))`
   );
 }
 
@@ -195,6 +219,36 @@ async function sendMessage(workspace, message) {
   }
 }
 
+// While a campaign is going out, watch what comes back. If many people complain or addresses bounce, stop the rest
+// and tell the owner, so a bad email does not keep damaging the sender's reputation.
+const COMPLAINT_STOP = Number(process.env.PAUSE_COMPLAINT_RATE || 0.005);
+const BOUNCE_STOP = Number(process.env.PAUSE_BOUNCE_RATE || 0.1);
+let lastGuard = 0, lastLearn = 0;
+export async function guardRunning() {
+  if (Date.now() - lastGuard < 60000) return;
+  lastGuard = Date.now();
+  const rows = await many(
+    `SELECT c.id, c.workspace_id, c.name,
+            count(m.id) FILTER (WHERE m.sent_at IS NOT NULL)::float AS sent,
+            count(m.id) FILTER (WHERE m.complained_at IS NOT NULL)::float AS complained,
+            count(m.id) FILTER (WHERE m.bounced_at IS NOT NULL AND m.bounce_type = 'Permanent')::float AS bounced
+     FROM campaigns c JOIN messages m ON m.campaign_id = c.id
+     WHERE c.status = 'sending' AND c.paused_reason IS NULL GROUP BY c.id`);
+  for (const c of rows) {
+    if (c.sent < 50) continue;
+    const reason = c.complained / c.sent >= COMPLAINT_STOP ? `${(c.complained / c.sent * 100).toFixed(2)}% of recipients marked it as spam`
+      : c.bounced / c.sent >= BOUNCE_STOP ? `${(c.bounced / c.sent * 100).toFixed(1)}% of addresses bounced` : null;
+    if (!reason) continue;
+    const paused = await one(`WITH p AS (UPDATE messages SET status = 'paused' WHERE campaign_id = $1 AND status = 'queued' RETURNING 1)
+      SELECT count(*)::int AS n FROM p`, [c.id]);
+    await query(`UPDATE campaigns SET paused_reason = $2 WHERE id = $1`, [c.id, reason]);
+    await notify(c.workspace_id, { kind: 'paused', campaignId: c.id, title: `Sending paused: ${c.name}`,
+      body: `${reason}. ${paused.n} emails were not sent yet. Check the email and your list, then resume or leave it stopped.` });
+  }
+  // Learning runs hourly on whichever server gets there first.
+  if (Date.now() - lastLearn > 3600000) { lastLearn = Date.now(); await learn().catch((err) => console.error('[learn]', err.message)); }
+}
+
 export function startWorker() {
   const tick = async () => {
     if (running) return;
@@ -205,6 +259,7 @@ export function startWorker() {
       await scanDateTriggers();
       await processAbTests();
       await drainOnce();
+      await guardRunning();
     } catch (err) {
       console.error('[queue]', err.message);
     } finally {

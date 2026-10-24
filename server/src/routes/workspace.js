@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { many, one, query } from '../db.js';
-import { enqueueCampaign } from '../queue.js';
+import { enqueueCampaign, RiskHold } from '../queue.js';
+import { assess } from '../spamrisk.js';
+import { notify } from '../notify.js';
 import { buildEmail } from '../render.js';
 import { upsertContact } from '../contacts.js';
 import { newKey } from '../apikeys.js';
@@ -31,8 +33,10 @@ import { capForDay, schedule, daysToSend, warmupDay } from '../warmup.js';
 import { abStats, abPlan, AB_MIN_AUDIENCE } from '../abtest.js';
 import { cleanTz, earliestInstant, LOCAL_RE } from '../timeutil.js';
 import automationsAdmin from './automationsAdmin.js';
+import ssoAdmin from './ssoAdmin.js';
 import { audit, listAudit } from '../audit.js';
-import { archive, listDeleted, restore } from '../archive.js';
+import { archive, listDeleted, restore, kindOf, eraseNow } from '../archive.js';
+import { PERMISSIONS, permissionsOf, requiredPermission, cleanPermissions } from '../perms.js';
 import { isEmail, normEmail, DOMAIN_RE, TRACKING_RE, cleanName, cleanText, cleanAttrs, senderAllowed, readDesign } from '../validate.js';
 
 const router = Router({ mergeParams: true });
@@ -43,10 +47,16 @@ const MAX_IMPORT_ROWS = 5000;
 
 router.param('id', (_req, res, next, v) => (/^\d{1,9}$/.test(v) ? next() : bad(res, 'bad id')));
 
-// Viewers can look but not change anything.
-router.use((req, res, next) => (req.workspace.role === 'viewer' && !['GET', 'HEAD', 'OPTIONS'].includes(req.method)
-  ? res.status(403).json({ error: 'Your role is view only' }) : next()));
-// Sensitive actions (API keys, data exports, provider secrets) need the workspace owner.
+// Every request is checked against the permission its route needs (see perms.js). Unlisted writes are refused.
+router.use(async (req, res, next) => {
+  const need = requiredPermission(req.method, req.path);
+  const mine = permissionsOf(req.workspace, { platformAdmin: await isAdmin(req.user.uid) });
+  req.perms = mine;
+  if (need.denied) return res.status(403).json({ error: 'This action is not available' });
+  if (need.perm && !mine.includes(need.perm)) return res.status(403).json({ error: `You do not have permission: ${PERMISSIONS[need.perm].toLowerCase()}` });
+  next();
+});
+// Kept for handlers that insist on the workspace owner whatever the permission list says.
 const needOwner = (what) => async (req, res, next) => ((await canManageTeam(req)) ? next() : res.status(403).json({ error: `Only the workspace owner can ${what}` }));
 
 const isAdmin = async (uid) => !!(await one(`SELECT is_admin FROM users WHERE id = $1`, [uid]))?.is_admin;
@@ -164,6 +174,16 @@ router.put('/', async (req, res) => {
      flag('block_disposable'), flag('block_role'), flag('check_mx'), flag('preference_center'),
      warmEnabled, warmVolume, warmGrowth, admin && f.warmup_restart === true, tzone]
   );
+  // The spam-risk guard. Switching it off or loosening it is the owner's call.
+  if (f.risk_hold_enabled !== undefined || f.risk_threshold !== undefined) {
+    if (!owner) return res.status(403).json({ error: 'Only the workspace owner can change the spam-risk guard' });
+    const thr = f.risk_threshold === undefined ? null : Math.round(Number(f.risk_threshold));
+    if (thr !== null && !(thr >= 10 && thr <= 100)) return bad(res, 'risk_threshold must be between 10 and 100');
+    await query(`UPDATE workspaces SET risk_hold_enabled = COALESCE($2::boolean, risk_hold_enabled), risk_threshold = COALESCE($3::int, risk_threshold) WHERE id = $1`,
+      [ws(req), typeof f.risk_hold_enabled === 'boolean' ? f.risk_hold_enabled : null, thr]);
+    row.risk_hold_enabled = typeof f.risk_hold_enabled === 'boolean' ? f.risk_hold_enabled : row.risk_hold_enabled;
+    if (thr !== null) row.risk_threshold = thr;
+  }
   // Field names only. Secret values never enter the log.
   await audit(req, 'workspace.settings_updated', { meta: { fields: Object.keys(f).filter((k) => f[k] !== undefined) } });
   res.json(publicWorkspace(row));
@@ -262,12 +282,20 @@ router.post('/contacts/import', async (req, res) => {
   res.json({ imported: good.length, skipped: parsed.skipped, duplicates: parsed.duplicates, rejected: rejectedTotal, rejected_by: rejected, errors: parsed.errors });
 });
 
+// Deleting a contact keeps a copy for 30 days so a slip is a restore, not an incident. "?permanent=1" (owner only) erases
+// the contact and their signup log at once, for privacy requests. Per-email message history does not come back on restore.
 router.delete('/contacts/:id', async (req, res) => {
-  const gone = await one(`DELETE FROM contacts WHERE id = $1 AND workspace_id = $2 RETURNING email`, [req.params.id, ws(req)]);
-  // Deleting a contact also erases their signup and consent log entries.
-  if (gone) await query(`DELETE FROM form_signups WHERE workspace_id = $1 AND email = $2`, [ws(req), gone.email]);
-  // Contacts are erased for good (that is the privacy promise), so the log keeps the id, never the address.
-  if (gone) await audit(req, 'contact.deleted', { target: req.params.id });
+  const permanent = ['1', 'true'].includes(String(req.query.permanent));
+  if (permanent && !(await canManageTeam(req))) return res.status(403).json({ error: 'Only the workspace owner can erase a contact for good' });
+  const lists = await many(`SELECT lc.list_id FROM list_contacts lc JOIN contacts c ON c.id = lc.contact_id WHERE c.id = $1 AND c.workspace_id = $2`, [req.params.id, ws(req)]);
+  const gone = await one(`DELETE FROM contacts WHERE id = $1 AND workspace_id = $2 RETURNING *`, [req.params.id, ws(req)]);
+  if (gone && permanent) {
+    await query(`DELETE FROM form_signups WHERE workspace_id = $1 AND email = $2`, [ws(req), gone.email]);
+    await audit(req, 'contact.erased', { target: req.params.id });
+  } else if (gone) {
+    await archive(ws(req), 'contact', gone, { label: gone.email, userId: req.user.uid, extra: { list_ids: lists.map((l) => l.list_id) } });
+    await audit(req, 'contact.deleted', { target: req.params.id });
+  }
   res.json({ ok: true });
 });
 
@@ -313,15 +341,28 @@ router.delete('/templates/:id', async (req, res) => {
 /* ---------- undo window for deleted lists and templates ---------- */
 router.get('/deleted', async (req, res) => res.json(await listDeleted(ws(req))));
 
+const RESTORE_PERM = { template: 'templates.write', list: 'lists.write', contact: 'contacts.write' };
 router.post('/deleted/:id/restore', async (req, res) => {
+  const kind = await kindOf(ws(req), req.params.id);
+  if (!kind) return res.status(404).json({ error: 'That item is gone or cannot be restored' });
+  if (!req.perms.includes(RESTORE_PERM[kind])) return res.status(403).json({ error: 'You do not have permission to restore this' });
   const row = await restore(ws(req), req.params.id);
+  if (row?.conflict) return res.status(409).json({ error: row.conflict });
   if (!row) return res.status(404).json({ error: 'That item is gone or cannot be restored' });
   await audit(req, 'record.restored', { target: req.params.id });
   res.json(row);
 });
 
+// Erase a held record now (privacy request). Owner only.
+router.delete('/deleted/:id', async (req, res) => {
+  if (!(await canManageTeam(req))) return res.status(403).json({ error: 'Only the workspace owner can erase held records' });
+  if (!(await eraseNow(ws(req), req.params.id))) return res.status(404).json({ error: 'not found' });
+  await audit(req, 'record.erased', { target: req.params.id });
+  res.json({ ok: true });
+});
+
 // Who did what in this workspace. Owner only. Page back with ?before=<last id>.
-router.get('/audit', needOwner('read the activity log'), async (req, res) => {
+router.get('/audit', async (req, res) => {
   res.json(await listAudit(ws(req), { before: req.query.before, limit: req.query.limit }));
 });
 
@@ -420,9 +461,10 @@ router.put('/campaigns/:id', async (req, res) => {
        html = COALESCE($5, html), list_id = CASE WHEN $11::boolean THEN $6 ELSE list_id END, segment_id = CASE WHEN $11::boolean THEN $12 ELSE segment_id END, scheduled_at = $7,
        preview_text = COALESCE($8, preview_text),
        design = CASE WHEN $9::boolean THEN $10::jsonb ELSE design END,
+       risk_score = NULL, risk_reasons = NULL,
        status = CASE WHEN $7::timestamptz IS NOT NULL THEN 'scheduled' ELSE 'draft' END,
        subject_b = $13, ab_percent = $14, ab_wait_hours = $15, ab_metric = $16, best_time = $17, local_time = $18, local_at = $19
-     WHERE id = $1 AND workspace_id = $2 AND status IN ('draft','scheduled') RETURNING *`,
+     WHERE id = $1 AND workspace_id = $2 AND status IN ('draft','scheduled','needs_review') RETURNING *`,
     [req.params.id, ws(req), name === undefined ? null : cleanName(name),
      subject === undefined ? null : cleanText(subject, 300), html === undefined ? null : String(html).slice(0, MAX_HTML),
      lst, o.when, preview_text === undefined ? null : cleanText(preview_text, 150), dz.set, dz.value, audienceGiven, seg,
@@ -440,11 +482,42 @@ router.post('/campaigns/:id/send', async (req, res) => {
     return bad(res, 'sender not approved: an admin must set your sending domain, and your from email must use it');
   }
   if (!req.workspace.footer_address) return bad(res, 'add a footer postal address in settings first');
+  // send_anyway: a person has seen the spam-risk report and wants it sent regardless. Logged.
+  const force = req.body?.send_anyway === true;
   try {
-    res.json({ queued: await enqueueCampaign(campaign.id) });
+    const queued = await enqueueCampaign(campaign.id, { force, userId: req.user.uid });
+    if (force) await audit(req, 'campaign.risk_override', { target: campaign.id });
+    res.json({ queued });
   } catch (err) {
+    if (err instanceof RiskHold) return res.json({ queued: 0, ...err.result });
     bad(res, err.message);
   }
+});
+
+// The spam-risk report for a campaign, without sending anything.
+router.get('/campaigns/:id/risk', async (req, res) => {
+  const c = await one(`SELECT subject, html, preview_text FROM campaigns WHERE id = $1 AND workspace_id = $2`, [req.params.id, ws(req)]);
+  if (!c) return res.status(404).json({ error: 'not found' });
+  res.json({ ...(await assess(req.workspace, { subject: c.subject, html: c.html, preview: c.preview_text })), threshold: req.workspace.risk_threshold, enabled: req.workspace.risk_hold_enabled });
+});
+
+// Carry on sending a campaign that was stopped because of complaints or bounces.
+router.post('/campaigns/:id/resume', async (req, res) => {
+  const c = await one(`UPDATE campaigns SET paused_reason = NULL WHERE id = $1 AND workspace_id = $2 AND status = 'sending' AND paused_reason IS NOT NULL RETURNING id`, [req.params.id, ws(req)]);
+  if (!c) return res.status(404).json({ error: 'That campaign is not paused' });
+  const r = await one(`WITH p AS (UPDATE messages SET status = 'queued' WHERE campaign_id = $1 AND status = 'paused' RETURNING 1) SELECT count(*)::int AS n FROM p`, [c.id]);
+  await audit(req, 'campaign.resumed', { target: c.id });
+  res.json({ resumed: r.n });
+});
+
+/* ---------- notifications ---------- */
+router.get('/notifications', async (req, res) => res.json({
+  unread: (await one(`SELECT count(*)::int AS n FROM notifications WHERE workspace_id = $1 AND read_at IS NULL`, [ws(req)])).n,
+  items: await many(`SELECT id, kind, title, body, campaign_id, created_at, read_at FROM notifications WHERE workspace_id = $1 ORDER BY id DESC LIMIT 50`, [ws(req)])
+}));
+router.post('/notifications/read', async (req, res) => {
+  await query(`UPDATE notifications SET read_at = now() WHERE workspace_id = $1 AND read_at IS NULL`, [ws(req)]);
+  res.json({ ok: true });
 });
 
 router.get('/campaigns/:id/preview', async (req, res) => {
@@ -469,13 +542,13 @@ router.get('/campaigns/:id/messages', async (req, res) => {
 });
 
 /* ---------- API keys ---------- */
-router.get('/api-keys', needOwner('manage API keys'), async (req, res) => {
+router.get('/api-keys', async (req, res) => {
   res.json(await many(
     `SELECT id, name, prefix, last_used_at, created_at FROM api_keys
      WHERE workspace_id = $1 AND revoked_at IS NULL ORDER BY id DESC`, [ws(req)]));
 });
 
-router.post('/api-keys', needOwner('manage API keys'), async (req, res) => {
+router.post('/api-keys', async (req, res) => {
   const name = cleanName(req.body?.name) || 'Untitled key';
   const { n } = await one(`SELECT count(*)::int AS n FROM api_keys WHERE workspace_id = $1 AND revoked_at IS NULL`, [ws(req)]);
   if (n >= 10) return bad(res, 'You can have at most 10 active keys. Revoke one first.');
@@ -487,7 +560,7 @@ router.post('/api-keys', needOwner('manage API keys'), async (req, res) => {
   res.json({ ...row, key }); // the full key is shown this once and never stored
 });
 
-router.delete('/api-keys/:id', needOwner('manage API keys'), async (req, res) => {
+router.delete('/api-keys/:id', async (req, res) => {
   await query(`UPDATE api_keys SET revoked_at = now() WHERE id = $1 AND workspace_id = $2 AND revoked_at IS NULL`, [req.params.id, ws(req)]);
   await audit(req, 'apikey.revoked', { target: req.params.id });
   res.json({ ok: true });
@@ -545,9 +618,29 @@ router.get('/members', async (req, res) => {
   res.json({
     can_manage: await canManageTeam(req),
     data: await many(
-      `SELECT u.id AS user_id, u.email, u.name, m.role FROM memberships m JOIN users u ON u.id = m.user_id
+      `SELECT u.id AS user_id, u.email, u.name, m.role, m.permissions, m.provisioned_by, (u.totp_enabled_at IS NOT NULL) AS mfa FROM memberships m JOIN users u ON u.id = m.user_id
        WHERE m.workspace_id = $1 ORDER BY (m.role = 'owner') DESC, u.email`, [ws(req)])
   });
+});
+
+// What each permission means, and what this person may do right now.
+router.get('/permissions', (req, res) => res.json({ catalog: PERMISSIONS, mine: req.perms, role: req.workspace.role }));
+
+// Owner sets a person's role and exact permissions. permissions: null goes back to the role's default set.
+router.put('/members/:userId/permissions', async (req, res) => {
+  if (!(await canManageTeam(req))) return res.status(403).json({ error: 'Only the workspace owner can change permissions' });
+  if (!/^\d{1,9}$/.test(req.params.userId)) return bad(res, 'bad id');
+  const role = req.body?.role;
+  if (role !== undefined && !['member', 'viewer'].includes(role)) return bad(res, 'role must be member or viewer');
+  const perms = req.body?.permissions === null ? null : cleanPermissions(req.body?.permissions);
+  if (req.body?.permissions !== undefined && req.body.permissions !== null && perms === null) return bad(res, 'permissions must be a list');
+  const row = await one(
+    `UPDATE memberships SET role = COALESCE($3, role), permissions = CASE WHEN $4::boolean THEN $5::text[] ELSE permissions END
+     WHERE workspace_id = $1 AND user_id = $2 AND role IN ('member', 'viewer') RETURNING user_id, role, permissions`,
+    [ws(req), Number(req.params.userId), role ?? null, req.body?.permissions !== undefined, perms]);
+  if (!row) return bad(res, 'That person cannot be changed');
+  await audit(req, 'member.permissions_changed', { target: row.user_id, meta: { role: row.role, permissions: row.permissions } });
+  res.json(row);
 });
 
 router.post('/members', async (req, res) => {
@@ -558,16 +651,17 @@ router.post('/members', async (req, res) => {
   if (n >= MAX_MEMBERS) return bad(res, `A workspace can have at most ${MAX_MEMBERS} people`);
 
   const role = req.body?.role === 'viewer' ? 'viewer' : 'member';
-  await audit(req, 'member.added', { target: email.replace(/^[^@]*/, '***'), meta: { role } });
+  const perms = req.body?.permissions === undefined ? null : cleanPermissions(req.body.permissions);
+  await audit(req, 'member.added', { target: email.replace(/^[^@]*/, '***'), meta: { role, permissions: perms } });
   const existing = await one(`SELECT id FROM users WHERE email = $1`, [email]);
   if (existing) {
-    await query(`INSERT INTO memberships (user_id, workspace_id, role) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`, [existing.id, ws(req), role]);
+    await query(`INSERT INTO memberships (user_id, workspace_id, role, permissions) VALUES ($1, $2, $3, $4::text[]) ON CONFLICT DO NOTHING`, [existing.id, ws(req), role, perms]);
     return res.json({ email, invited: false, message: 'They already have an account and can now switch into this workspace.' });
   }
 
   // New person: create the account with a random password nobody knows, and let them set their own.
   const user = await one(`INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id`, [email, await hash(crypto.randomBytes(24).toString('hex'))]);
-  await query(`INSERT INTO memberships (user_id, workspace_id, role) VALUES ($1, $2, $3)`, [user.id, ws(req), role]);
+  await query(`INSERT INTO memberships (user_id, workspace_id, role, permissions) VALUES ($1, $2, $3, $4::text[])`, [user.id, ws(req), role, perms]);
   const link = resetLink(await createResetToken(user.id, 72));
   let emailed = false;
   try {
@@ -599,6 +693,7 @@ router.use('/profile', profileRoutes);
 router.use('/media', mediaAdmin);
 router.use('/analytics', analyticsRoutes);
 router.use('/automations', automationsAdmin);
+router.use('/', ssoAdmin);
 
 /* ---------- blocked addresses ---------- */
 async function liftBlock(workspaceId, email) {
@@ -652,7 +747,7 @@ const sendCsv = (res, name, lines) => {
   res.send('\uFEFF' + lines.join('\r\n') + '\r\n');
 };
 
-router.get('/contacts/export', exportLimit, needOwner('export contacts'), async (req, res) => {
+router.get('/contacts/export', exportLimit, async (req, res) => {
   await audit(req, 'contacts.exported');
   const rows = await many(
     `SELECT c.email, c.first_name, c.last_name, c.status, c.consent_source, c.consent_at, c.created_at, c.attributes,
@@ -665,7 +760,7 @@ router.get('/contacts/export', exportLimit, needOwner('export contacts'), async 
   ]);
 });
 
-router.get('/campaigns/:id/export', exportLimit, needOwner('export reports'), async (req, res) => {
+router.get('/campaigns/:id/export', exportLimit, async (req, res) => {
   await audit(req, 'campaign.exported', { target: req.params.id });
   const c = await one(`SELECT name FROM campaigns WHERE id = $1 AND workspace_id = $2`, [req.params.id, ws(req)]);
   if (!c) return res.status(404).json({ error: 'not found' });

@@ -27,12 +27,15 @@
     "migrate": "node scripts/migrate.js up",
     "migrate:down": "node scripts/migrate.js down",
     "migrate:status": "node scripts/migrate.js status",
-    "test:hardening": "node test/hardening.mjs"
+    "test:hardening": "node test/hardening.mjs",
+    "test:features": "node test/features.mjs",
+    "test:spamrisk": "node test/spamrisk.mjs"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@node-saml/node-saml": "^5.1.0",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
     "dotenv": "^18.0.0",

@@ -15,6 +15,7 @@ import Segments from './pages/Segments.jsx';
 import ContactProfile from './pages/ContactProfile.jsx';
 import Forms from './pages/Forms.jsx';
 import Automations from './pages/Automations.jsx';
+import Bell from './pages/Notifications.jsx';
 
 function Shell({ user, workspaces, onLogout }) {
   const nav = useNavigate();
@@ -80,6 +81,7 @@ function Shell({ user, workspaces, onLogout }) {
           )}
           <div>{current?.name}</div>
           <div>{user?.email}</div>
+          <Bell />
           <button className="btn ghost sm signout" onClick={onLogout}>Sign out</button>
         </div>
       </aside>
@@ -107,6 +109,12 @@ function Shell({ user, workspaces, onLogout }) {
 
 export default function App() {
   const [state, setState] = useState({ loading: true, user: null, workspaces: [] });
+
+  // Single sign-on lands here with the token in the URL fragment. Take it and clean the address bar.
+  if (window.location.pathname === '/sso' && window.location.hash.startsWith('#token=')) {
+    store.token = decodeURIComponent(window.location.hash.slice(7));
+    window.history.replaceState(null, '', '/');
+  }
 
   const load = async () => {
     if (!store.token) return setState({ loading: false, user: null, workspaces: [] });

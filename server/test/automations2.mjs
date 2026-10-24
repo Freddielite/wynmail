@@ -108,8 +108,7 @@ await fetch(`${BASE}/v1/contacts`, { method: 'POST', headers: { 'Content-Type': 
 check('a tag added through the API starts it too', !!(await until(() => mailed('t3@example.com', 'VIP welcome'))));
 const il = await mkList('Import list');
 await call('POST', `${W}/contacts/import`, { token: A, body: { list_id: il.id, csv: 'email,first_name,tags\nimp1@example.com,Imp,imported;vip' } });
-await sleep(3000);
-check('tags from an import start only the automations that allow imports', mailed('imp1@example.com', 'Import welcome') && !mailed('imp1@example.com', 'VIP welcome'));
+check('tags from an import start only the automations that allow imports', !!(await until(() => mailed('imp1@example.com', 'Import welcome'))) && !mailed('imp1@example.com', 'VIP welcome'));
 const paused = (await call('POST', `${W}/automations/${tagAuto.id}/status`, { token: A, body: { active: false } }));
 await add('t4@example.com', 'T4', { tags: ['vip'] });
 await sleep(2500);

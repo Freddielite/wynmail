@@ -80,6 +80,16 @@ router.put('/workspaces/:id', async (req, res) => {
   res.json(publicWorkspace(row));
 });
 
+// For the person who lost their phone and their recovery codes. Verify who they are first, outside the app.
+router.post('/users/:id/reset-mfa', async (req, res) => {
+  if (!/^\d{1,9}$/.test(req.params.id)) return bad(res, 'bad id');
+  const u = await one(`UPDATE users SET totp_secret = NULL, totp_pending = NULL, totp_enabled_at = NULL, totp_last_step = NULL, sessions_valid_after = now() WHERE id = $1 RETURNING id`, [req.params.id]);
+  if (!u) return res.status(404).json({ error: 'not found' });
+  await query(`DELETE FROM mfa_recovery_codes WHERE user_id = $1`, [u.id]);
+  await audit(req, 'admin.mfa_reset', { target: u.id });
+  res.json({ ok: true });
+});
+
 // Support kill switch: signs one user out of every device at once.
 router.post('/users/:id/revoke-sessions', async (req, res) => {
   if (!/^\d{1,9}$/.test(req.params.id)) return bad(res, 'bad id');

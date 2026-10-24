@@ -3,7 +3,7 @@ import { htmlToText } from './text.js';
 // Looks over an email before it goes out and says what could land it in spam or confuse readers.
 // level: fail (fix this), warn (worth fixing), pass, info. Pure functions, so they are easy to test.
 
-const SPAM_PHRASES = [
+export const SPAM_PHRASES = [
   'free money', '100% free', '100% guaranteed', 'act now', 'apply now', 'as seen on', 'buy now', 'call now', 'cash bonus', 'click below',
   'click here', 'double your', 'earn $', 'earn extra', 'extra income', 'get paid', 'guarantee', 'increase sales', 'limited time', 'make money',
   'no obligation', 'no cost', 'once in a lifetime', 'order now', 'risk free', 'risk-free', 'special promotion', 'this is not spam',

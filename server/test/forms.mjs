@@ -153,7 +153,7 @@ check('form list only shows own forms with counts', (await call('GET', '/api/wor
 await call('PUT', `/api/workspaces/1/forms/${f2.id}`, { token: A, body: { ...base, list_id: otherList.id, double_optin: false, active: false } });
 check('a form that is switched off disappears from the public web', (await fetch(`${BASE}/f/${f2.slug}`)).status === 404 && (await subscribe(f2.slug, { email: 'late@example.com', t: t2 })).status === 404);
 const adaId = ada.id;
-await call('DELETE', `/api/workspaces/1/contacts/${adaId}`, { token: A });
+await call('DELETE', `/api/workspaces/1/contacts/${adaId}?permanent=1`, { token: A });
 check('deleting a contact erases their signup records', !(await signups(f1.id)).some((s) => s.email === 'ada@example.com'));
 
 console.log(`\n${pass} passed, ${fail} failed`);

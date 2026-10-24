@@ -5,6 +5,10 @@ import { isEmail, normEmail, cleanName } from '../validate.js';
 import { rateLimit } from '../rateLimit.js';
 import { createResetToken, consumeResetToken, resetLink } from '../resets.js';
 import { audit } from '../audit.js';
+import jwt from 'jsonwebtoken';
+import { SECRET, encrypt, decrypt } from '../config.js';
+import { newSecret, verifyCode, otpauthUrl, newRecoveryCodes, hashRecovery } from '../totp.js';
+import { ssoEnforcedFor } from '../sso.js';
 import { hmac } from '../config.js';
 import { sendSystemEmail, actionEmail } from '../sysmail.js';
 
@@ -74,8 +78,109 @@ router.post('/login', byIp, byAccount, async (req, res) => {
     await audit(req, 'login.failed', { actorId: user?.id ?? null, target: emailKey });
     return res.status(401).json({ error: 'invalid credentials' });
   }
+  if (!user.is_admin && await ssoEnforcedFor(email)) {
+    return res.status(403).json({ error: 'Your company signs in with single sign-on. Use "Sign in with SSO".', sso: true });
+  }
+  // With MFA on, the password alone gets only a 5 minute pass that is good for nothing except the second step.
+  if (user.totp_enabled_at) {
+    const mfa_token = jwt.sign({ uid: user.id, purpose: 'mfa' }, SECRET, { expiresIn: '5m', algorithm: 'HS256' });
+    return res.json({ mfa_required: true, mfa_token });
+  }
   await audit(req, 'login.ok', { actorId: user.id, target: emailKey });
   res.json({ token: sign(user), user: { id: user.id, email: user.email, name: user.name } });
+});
+
+const mfaLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 20 });
+
+// Spends a recovery code if it matches one. Each works once.
+async function useRecoveryCode(userId, code) {
+  return !!(await one(`UPDATE mfa_recovery_codes SET used_at = now() WHERE user_id = $1 AND code_hash = $2 AND used_at IS NULL RETURNING id`, [userId, hashRecovery(code)]));
+}
+
+// Second step of sign-in: a 6 digit code from the phone, or one recovery code if the phone is lost.
+router.post('/login/mfa', mfaLimit, async (req, res) => {
+  let payload;
+  try { payload = jwt.verify(String(req.body?.mfa_token || ''), SECRET, { algorithms: ['HS256'] }); } catch { payload = null; }
+  if (!payload || payload.purpose !== 'mfa') return res.status(401).json({ error: 'That sign-in expired. Start again.' });
+  const user = await one(`SELECT * FROM users WHERE id = $1`, [payload.uid]);
+  if (!user?.totp_enabled_at) return res.status(401).json({ error: 'That sign-in expired. Start again.' });
+  const failKey = hmac(`mfa|${user.id}`).slice(0, 32);
+  const { n } = await one(`SELECT count(*)::int AS n FROM audit_log WHERE action = 'mfa.failed' AND target = $1 AND created_at > now() - interval '15 minutes'`, [failKey]);
+  if (n >= 10) return res.status(429).json({ error: 'Too many wrong codes. Wait a few minutes and try again.' });
+
+  let ok = false, usedRecovery = false;
+  if (req.body?.recovery_code) { ok = await useRecoveryCode(user.id, req.body.recovery_code); usedRecovery = ok; }
+  else {
+    const step = verifyCode(decrypt(user.totp_secret), req.body?.code, { lastStep: user.totp_last_step });
+    if (step !== null) {
+      // The step is recorded, so the same code cannot be replayed within its 30 seconds.
+      ok = !!(await one(`UPDATE users SET totp_last_step = $2 WHERE id = $1 AND (totp_last_step IS NULL OR totp_last_step < $2) RETURNING id`, [user.id, step]));
+    }
+  }
+  if (!ok) { await audit(req, 'mfa.failed', { actorId: user.id, target: failKey }); return res.status(401).json({ error: 'That code is not right.' }); }
+  await audit(req, usedRecovery ? 'mfa.recovery_used' : 'login.ok', { actorId: user.id, target: hmac(`login|${user.email}`).slice(0, 32) });
+  res.json({ token: sign(user), user: { id: user.id, email: user.email, name: user.name }, ...(usedRecovery ? { recovery_used: true } : {}) });
+});
+
+/* ---------- turning MFA on and off (signed in) ---------- */
+router.get('/mfa', requireAuth, async (req, res) => {
+  const u = await one(`SELECT totp_enabled_at FROM users WHERE id = $1`, [req.user.uid]);
+  const { n } = await one(`SELECT count(*)::int AS n FROM mfa_recovery_codes WHERE user_id = $1 AND used_at IS NULL`, [req.user.uid]);
+  res.json({ enabled: !!u.totp_enabled_at, enabled_at: u.totp_enabled_at, recovery_codes_left: u.totp_enabled_at ? n : 0 });
+});
+
+// Step 1: get a secret to put in the authenticator app. Nothing changes until the first code is confirmed.
+router.post('/mfa/setup', requireAuth, passwordLimit, async (req, res) => {
+  const u = await one(`SELECT email, totp_enabled_at FROM users WHERE id = $1`, [req.user.uid]);
+  if (u.totp_enabled_at) return res.status(400).json({ error: 'Two-step sign-in is already on' });
+  const secret = newSecret();
+  await query(`UPDATE users SET totp_pending = $2 WHERE id = $1`, [req.user.uid, encrypt(secret)]);
+  res.json({ secret, otpauth_url: otpauthUrl(secret, u.email) });
+});
+
+// Step 2: confirm with a code. Turns MFA on and returns the recovery codes, shown this once.
+router.post('/mfa/enable', requireAuth, passwordLimit, async (req, res) => {
+  const u = await one(`SELECT * FROM users WHERE id = $1`, [req.user.uid]);
+  if (u.totp_enabled_at) return res.status(400).json({ error: 'Two-step sign-in is already on' });
+  if (!u.totp_pending) return res.status(400).json({ error: 'Start the setup first' });
+  const step = verifyCode(decrypt(u.totp_pending), req.body?.code);
+  if (step === null) return res.status(400).json({ error: 'That code is not right. Check the time on your phone.' });
+  const codes = newRecoveryCodes();
+  await query(`UPDATE users SET totp_secret = totp_pending, totp_pending = NULL, totp_enabled_at = now(), totp_last_step = $2, sessions_valid_after = now() WHERE id = $1`, [u.id, step]);
+  await query(`DELETE FROM mfa_recovery_codes WHERE user_id = $1`, [u.id]);
+  for (const c of codes) await query(`INSERT INTO mfa_recovery_codes (user_id, code_hash) VALUES ($1, $2)`, [u.id, hashRecovery(c)]);
+  await audit(req, 'mfa.enabled', { actorId: u.id, target: u.id });
+  res.json({ recovery_codes: codes, token: sign(u) }); // other sessions end; this one continues
+});
+
+// Needs the password and a current code (or a recovery code), so a stolen session cannot switch it off.
+async function reauth(req, res) {
+  const u = await one(`SELECT * FROM users WHERE id = $1`, [req.user.uid]);
+  if (!u.totp_enabled_at) { res.status(400).json({ error: 'Two-step sign-in is not on' }); return null; }
+  if (!(await verify(typeof req.body?.password === 'string' ? req.body.password : '', u.password_hash))) { res.status(400).json({ error: 'Your password is wrong' }); return null; }
+  const okCode = req.body?.recovery_code ? await useRecoveryCode(u.id, req.body.recovery_code)
+    : verifyCode(decrypt(u.totp_secret), req.body?.code, { lastStep: u.totp_last_step }) !== null;
+  if (!okCode) { res.status(400).json({ error: 'That code is not right.' }); return null; }
+  return u;
+}
+
+router.post('/mfa/disable', requireAuth, passwordLimit, async (req, res) => {
+  const u = await reauth(req, res);
+  if (!u) return;
+  await query(`UPDATE users SET totp_secret = NULL, totp_pending = NULL, totp_enabled_at = NULL, totp_last_step = NULL, sessions_valid_after = now() WHERE id = $1`, [u.id]);
+  await query(`DELETE FROM mfa_recovery_codes WHERE user_id = $1`, [u.id]);
+  await audit(req, 'mfa.disabled', { actorId: u.id, target: u.id });
+  res.json({ ok: true, token: sign(u) });
+});
+
+router.post('/mfa/recovery-codes', requireAuth, passwordLimit, async (req, res) => {
+  const u = await reauth(req, res);
+  if (!u) return;
+  const codes = newRecoveryCodes();
+  await query(`DELETE FROM mfa_recovery_codes WHERE user_id = $1`, [u.id]);
+  for (const c of codes) await query(`INSERT INTO mfa_recovery_codes (user_id, code_hash) VALUES ($1, $2)`, [u.id, hashRecovery(c)]);
+  await audit(req, 'mfa.recovery_regenerated', { actorId: u.id, target: u.id });
+  res.json({ recovery_codes: codes });
 });
 
 // Ends every session for the signed-in user, on every device. The caller gets a fresh token and stays signed in.
