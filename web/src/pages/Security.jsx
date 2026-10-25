@@ -54,7 +54,7 @@ export default function Security() {
         </p>
 
         {codes && (
-          <div className="keybox" style={{ marginBottom: 12 }}>
+          <div className="note" style={{ marginBottom: 12 }}>
             <strong>Save these recovery codes now.</strong> Each works once if you lose your phone. They are not shown again.
             <pre className="code" style={{ margin: '8px 0' }}>{codesText}</pre>
             <CopyBtn text={codesText} label="Copy codes" />{' '}

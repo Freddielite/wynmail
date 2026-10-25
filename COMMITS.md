@@ -120,3 +120,4 @@
 118. `feat(web): add the Sending mailboxes card and the SMTP provider option to Settings`
 119. `test(smtp): add provider, queue and route tests against a real local SMTP server`
 120. `feat(prospector): collect Gmail, Yahoo and other free inboxes printed on a business site`
+121. `fix(web): remove the underline on link buttons, give explanation boxes normal text wrapping, and animate the notifications button and panel`

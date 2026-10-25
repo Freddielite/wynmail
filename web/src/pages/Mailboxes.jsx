@@ -50,7 +50,7 @@ export default function Mailboxes({ provider }) {
         {!adding && <button className="btn sm" onClick={() => setAdding(true)}>Add a mailbox</button>}
       </div>
 
-      {provider !== 'smtp' && <div className="keybox" style={{ margin: '12px 0' }}>This workspace still sends through <strong>{provider}</strong>. Ask Wyntek to switch it to <strong>SMTP mailboxes</strong> once your mailboxes are added.</div>}
+      {provider !== 'smtp' && <div className="note" style={{ margin: '12px 0' }}>This workspace still sends through <strong>{provider}</strong>. Ask Wyntek to switch it to <strong>SMTP mailboxes</strong> once your mailboxes are added.</div>}
       {data.mailboxes.length > 0 && <p style={{ margin: '12px 0' }}>Left to send today across all mailboxes: <strong>{cap.left}</strong></p>}
 
       {data.mailboxes.length > 0 && (
@@ -85,7 +85,7 @@ export default function Mailboxes({ provider }) {
       )}
 
       {adding && (
-        <div className="keybox" style={{ marginTop: 14 }}>
+        <div className="note" style={{ marginTop: 14 }}>
           <strong>Connect a mailbox</strong>
           <p className="muted" style={{ margin: '4px 0 10px' }}>Use an <strong>app password</strong>, not the mailbox's normal password. In Zoho: Account, then Security, then App Passwords. In Google: Security, then 2-Step Verification, then App passwords. The login is checked before anything is saved.</p>
           <div className="field"><label>Mail provider</label>

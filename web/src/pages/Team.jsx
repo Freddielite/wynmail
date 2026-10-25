@@ -98,7 +98,7 @@ export default function Team() {
             </table>
           </div>
           {edit && (
-            <div className="keybox" style={{ marginTop: 12 }}>
+            <div className="note" style={{ marginTop: 12 }}>
               <div className="between" style={{ marginBottom: 8 }}>
                 <strong>What this person can do</strong>
                 <Select value={edit.role} onChange={(e) => setEdit({ ...edit, role: e.target.value })} style={{ maxWidth: 130 }}>

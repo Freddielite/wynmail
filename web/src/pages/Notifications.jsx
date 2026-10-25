@@ -17,11 +17,11 @@ export default function Bell() {
 
   return (
     <div className="bell-wrap" style={{ marginTop: 10 }}>
-      <button className="btn ghost sm" onClick={toggle} style={{ width: '100%' }}>
-        Notifications{data.unread > 0 && <span className="pill red" style={{ marginLeft: 8 }}>{data.unread}</span>}
+      <button className={`btn ghost sm bell-btn${open ? ' open' : ''}`} onClick={toggle} aria-expanded={open} style={{ width: '100%' }}>
+        Notifications{data.unread > 0 && <span className="bell-badge">{data.unread}</span>}
       </button>
       {open && (
-        <div className="card" style={{ marginTop: 8, color: '#0f172a', maxHeight: 320, overflow: 'auto' }}>
+        <div className="card bell-panel" style={{ marginTop: 8, color: '#0f172a', maxHeight: 320, overflow: 'auto' }}>
           {data.items.length === 0 && <div className="muted">Nothing yet.</div>}
           {data.items.map((n) => (
             <div key={n.id} style={{ marginBottom: 12 }}>

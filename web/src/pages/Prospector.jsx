@@ -80,7 +80,7 @@ export default function Prospector() {
         {rejected.length > 0 && (
           <p className="muted" style={{ marginTop: 10 }}>Skipped {rejected.length} that are not company websites: {rejected.slice(0, 5).map((r) => r.input).join(', ')}{rejected.length > 5 ? '...' : ''}</p>
         )}
-        <div className="keybox" style={{ marginTop: 14 }}>
+        <div className="note" style={{ marginTop: 14 }}>
           <strong>How this stays safe</strong>
           <ul style={{ margin: '6px 0 0 18px' }}>
             <li>It only reads pages the site shows to everyone, follows the site's robots.txt, and waits 2 to 3 seconds between pages.</li>
