@@ -1,0 +1,12 @@
+ALTER TABLE prospect_results DROP COLUMN IF EXISTS phone;
+ALTER TABLE prospect_results DROP COLUMN IF EXISTS score;
+ALTER TABLE prospect_results DROP COLUMN IF EXISTS kind;
+ALTER TABLE prospect_results DROP COLUMN IF EXISTS company;
+ALTER TABLE prospect_sites DROP COLUMN IF EXISTS via;
+ALTER TABLE prospect_sites DROP COLUMN IF EXISTS listed_page;
+ALTER TABLE prospect_sites DROP COLUMN IF EXISTS listed_email;
+ALTER TABLE prospect_sites DROP COLUMN IF EXISTS city;
+ALTER TABLE prospect_sites DROP COLUMN IF EXISTS category;
+ALTER TABLE prospect_sites DROP COLUMN IF EXISTS phone;
+ALTER TABLE prospect_sites DROP COLUMN IF EXISTS company;
+ALTER TABLE prospect_jobs DROP COLUMN IF EXISTS per_company;

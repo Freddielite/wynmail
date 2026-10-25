@@ -279,6 +279,19 @@ check('it can be stopped', (await call('POST', w(`/prospector/jobs/${pj.data.job
 const pd = await call('GET', w(`/prospector/jobs/${pj.data.job.id}`), { token: O });
 check('a stopped search stays stopped', pd.data.job.status === 'cancelled');
 check('starting a search is in the activity log', (await call('GET', w('/audit'), { token: O })).data.some((r) => r.action === 'prospector.job_created'));
+const disc = await call('POST', w('/prospector/discover'), { token: O, body: { category: 'restaurants', city: 'Abuja', country: 'NG' } });
+check('a business search lists businesses with their website, phone and map page', disc.status === 200 && disc.data.total === 3 && disc.data.with_website === 2 && disc.data.with_email === 1 && disc.data.businesses[0].listed_page.startsWith('https://www.openstreetmap.org/'), JSON.stringify(disc.data).slice(0, 200));
+check('a business search needs a real type, city and country', (await call('POST', w('/prospector/discover'), { token: O, body: { category: 'nope', city: 'Abuja', country: 'NG' } })).status === 400
+  && (await call('POST', w('/prospector/discover'), { token: O, body: { category: 'hotels', city: 'Abuja"]; out;', country: 'NG' } })).status === 400
+  && (await call('POST', w('/prospector/discover'), { token: O, body: { category: 'hotels', city: 'Abuja', country: 'ZZ' } })).status === 400);
+check('searching businesses is audit-logged', (await call('GET', w('/audit'), { token: O })).data.some((r) => r.action === 'prospector.discover'));
+check('the info call lists the types and countries', Object.keys((await call('GET', w('/prospector/info'), { token: O })).data.categories).length >= 10);
+const withBiz = await call('POST', w('/prospector/jobs'), { token: O, body: { per_company: 1, businesses: [...disc.data.businesses,
+  { name: 'Local', website: 'http://127.0.0.1/', phone: '1' }, { name: 'Fake page', email: 'x@y.ng', listed_page: 'https://evil.example/node/1' }] } });
+check('a search can start from the businesses found, keeping their details, ignoring bad entries', withBiz.status === 200 && withBiz.data.job.total_sites === 3 && withBiz.data.job.per_company === 1, JSON.stringify(withBiz.data).slice(0, 200));
+const wd = await call('GET', w(`/prospector/jobs/${withBiz.data.job.id}`), { token: O });
+check('the sites carry the business name, phone and city', wd.data.sites.some((x) => x.company === 'Test Kitchen One' && x.phone === '+234 800 000 0001'), JSON.stringify(wd.data.sites).slice(0, 200));
+await call('POST', w(`/prospector/jobs/${withBiz.data.job.id}/cancel`), { token: O });
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

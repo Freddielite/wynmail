@@ -1,0 +1,6 @@
+{ "elements": [
+  { "type": "node", "id": 101, "tags": { "name": "Test Kitchen One", "website": "https://wynmail-fixture-one.ng", "phone": "+234 800 000 0001", "addr:city": "Abuja" } },
+  { "type": "node", "id": 102, "tags": { "name": "Test Kitchen Two", "website": "https://wynmail-fixture-two.ng" } },
+  { "type": "way", "id": 103, "tags": { "name": "Mail Only Cafe", "email": "hello@wynmail-fixture-mail.ng" } },
+  { "type": "node", "id": 104, "tags": { "name": "Social Only", "website": "https://facebook.com/somepage" } }
+] }

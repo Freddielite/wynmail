@@ -80,6 +80,62 @@ export function extractEmails(html) {
   return [...found].map(cleanCandidate).filter(Boolean);
 }
 
+/* ---------- who they are: name, phone, address type ---------- */
+const GENERIC_TITLE = /^(home|homepage|welcome|welcome to|official( web)?site|main|index|contact( us)?|about( us)?|untitled|just another.*)$/i;
+const decode = (s) => decodeEntities(String(s || '')).replace(/\s+/g, ' ').trim();
+
+function walkJsonLd(node, out, depth = 0) {
+  if (!node || depth > 6) return;
+  if (Array.isArray(node)) { node.forEach((n) => walkJsonLd(n, out, depth + 1)); return; }
+  if (typeof node !== 'object') return;
+  const type = [].concat(node['@type'] || []).join(' ');
+  if (typeof node.email === 'string') out.emails.push(node.email.replace(/^mailto:/i, ''));
+  if (typeof node.telephone === 'string') out.phones.push(node.telephone);
+  if (typeof node.name === 'string' && /Organization|LocalBusiness|Store|Restaurant|Hotel|Corporation|Company|Clinic|School|Service|Professional/i.test(type)) out.names.push(node.name);
+  for (const v of Object.values(node)) if (v && typeof v === 'object') walkJsonLd(v, out, depth + 1);
+}
+
+// The business name, phone and any address the site puts in its structured data (schema.org), which many sites include for Google.
+export function extractMeta(html) {
+  const src = String(html || '');
+  const ld = { emails: [], phones: [], names: [] };
+  for (const m of src.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
+    try { walkJsonLd(JSON.parse(m[1].trim()), ld); } catch { /* broken JSON: ignore */ }
+  }
+  const og = src.match(/<meta[^>]+property=["']og:site_name["'][^>]+content=["']([^"']+)["']/i)?.[1]
+    || src.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:site_name["']/i)?.[1];
+  const title = src.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1];
+  let company = ld.names.map(decode).find((n) => n && n.length <= 80) || (og && decode(og));
+  if (!company && title) {
+    const parts = decode(title).split(/\s*[|\u2013\u2014\u00b7:]\s*|\s+-\s+/).map((p) => p.trim()).filter((p) => p && !GENERIC_TITLE.test(p));
+    company = parts.sort((a, b) => a.length - b.length).find((p) => p.length >= 2 && p.length <= 60) || null;
+  }
+  const phones = [...ld.phones, ...[...src.matchAll(/href=["']tel:([^"']+)["']/gi)].map((m) => decodeURIComponent(m[1]))]
+    .map((p) => p.replace(/[^0-9+()\-\s]/g, '').trim()).filter((p) => p.replace(/\D/g, '').length >= 7 && p.length <= 30);
+  return { company: company ? company.slice(0, 80) : null, phone: phones[0] || null, emails: ld.emails.map(cleanCandidate).filter(Boolean) };
+}
+
+const ROLE = new Set(('info contact contactus sales hello hi hey support help admin administrator office enquiries enquiry inquiries inquiry mail email team hr careers jobs career recruitment ' +
+  'billing accounts account accounting finance marketing booking bookings reservations reservation orders order customerservice customercare service services press media general reception ' +
+  'studio shop store manager director ceo md president webmaster feedback welcome partners partnership hello1 enquire us ask').split(' '));
+
+// "person" = a named person (ada.obi@), "role" = a shared address (info@), "other" = anything else.
+export function classifyAddress(email) {
+  const local = String(email).toLowerCase().split('@')[0].split('+')[0];
+  const tokens = local.split(/[._-]+/).filter(Boolean);
+  if (tokens.some((t) => ROLE.has(t)) || ROLE.has(local)) return { kind: 'role' };
+  if (tokens.length === 2 && tokens.every((t) => /^[a-z]{2,20}$/.test(t))) {
+    const cap = (t) => t[0].toUpperCase() + t.slice(1);
+    return { kind: 'person', first_name: cap(tokens[0]), last_name: cap(tokens[1]) };
+  }
+  return { kind: 'other' };
+}
+
+// Higher is a better lead: a named person at the company's own domain, with a known company name and a phone.
+export function scoreLead({ kind, free = false, company = null, phone = null }) {
+  return { person: 50, other: 30, role: 20 }[kind] + (free ? 0 : 20) + (company ? 15 : 0) + (phone ? 5 : 0);
+}
+
 /* ---------- pages ---------- */
 const SKIP_EXT = /\.(pdf|jpe?g|png|gif|svg|webp|zip|rar|docx?|xlsx?|pptx?|mp[34]|css|js|xml|json)$/i;
 const SCORES = [
@@ -89,6 +145,12 @@ const SCORES = [
   [/support|help|locations?|offices?|branches/, 3]
 ];
 const sameSite = (a, b) => registrableDomain(a.hostname) === registrableDomain(b.hostname);
+
+// Pages listed in the site's sitemap.xml that look like contact, about or team pages.
+export function pagesFromSitemap(xml, baseUrl) {
+  const links = [...String(xml || '').matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/gi)].slice(0, 2000).map((m) => `<a href="${decodeEntities(m[1])}">`).join('');
+  return discoverPages(links, baseUrl);
+}
 
 export function discoverPages(html, baseUrl) {
   const base = new URL(baseUrl);
@@ -163,7 +225,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 export const defaultDelay = () => (process.env.PROSPECT_DELAY_MS !== undefined ? Number(process.env.PROSPECT_DELAY_MS) : 2000 + Math.random() * 1000);
 
 // Returns { origin, pages, emails: [{ email, page }], blocked, note, error }.
-export async function findEmails(input, { get = fetchPage, delayMs = defaultDelay, wait = sleep, maxPages = 4, shouldStop = () => false } = {}) {
+export async function findEmails(input, { get = fetchPage, delayMs = defaultDelay, wait = sleep, maxPages = 5, shouldStop = () => false } = {}) {
   const site = normalizeSite(input);
   if (!site) return { error: 'invalid_site', note: 'That does not look like a company website address.' };
   const opts = { userAgent: userAgent(), allowRedirect: (from, to) => sameSite(from, to) };
@@ -188,11 +250,16 @@ export async function findEmails(input, { get = fetchPage, delayMs = defaultDela
   if (!allowed(`${origin}/`)) return { origin, pages: [], emails: [], blocked: true, note: 'The site\'s robots.txt does not allow automated visits.' };
 
   const pages = [], emails = new Map();
+  let company = null, phone = null;
   const visit = async (url) => {
     if (shouldStop() || !allowed(url)) return null;
     const r = await polite(url);
     pages.push({ url: r.url || url, status: r.status || 0, error: r.error || null });
-    if (r.body) for (const e of extractEmails(r.body)) if (!emails.has(e)) emails.set(e, r.url || url);
+    if (r.body) {
+      const meta = extractMeta(r.body);
+      company = company || meta.company; phone = phone || meta.phone;
+      for (const e of [...extractEmails(r.body), ...meta.emails]) if (!emails.has(e)) emails.set(e, r.url || url);
+    }
     return r;
   };
 
@@ -202,10 +269,15 @@ export async function findEmails(input, { get = fetchPage, delayMs = defaultDela
   }
   const base = home.url || `${origin}/`;
   let next = discoverPages(home.body, base).filter((u) => allowed(u));
-  if (next.length < 2) for (const p of ['/contact', '/contact-us', '/about', '/about-us']) { const u = new URL(p, base).href; if (!next.includes(u)) next.push(u); }
+  // No obvious contact page on the home page? The sitemap usually lists one. One extra request, then common paths as a last resort.
+  if (!next.some((u) => /contact|touch|reach|enquir|inquir/i.test(u)) && !shouldStop() && allowed(`${origin}/sitemap.xml`)) {
+    const sm = await polite(new URL('/sitemap.xml', base).href, { accept: 'application/xml,text/xml,text/plain', types: /xml|text\// });
+    if (sm.body) for (const u of pagesFromSitemap(sm.body, base)) if (allowed(u) && !next.includes(u)) next.push(u);
+  }
+  if (next.length < 2) for (const p of ['/contact', '/contact-us', '/contact.html', '/contactus', '/about', '/about-us', '/get-in-touch']) { const u = new URL(p, base).href; if (!next.includes(u)) next.push(u); }
   for (const url of next.slice(0, Math.max(0, maxPages - 1))) {
     if (shouldStop()) break;
     await visit(url);
   }
-  return { origin, host: new URL(base).hostname.replace(/^www\./, ''), pages, emails: [...emails].map(([email, page]) => ({ email, page })) };
+  return { origin, host: new URL(base).hostname.replace(/^www\./, ''), company, phone, pages, emails: [...emails].map(([email, page]) => ({ email, page })) };
 }

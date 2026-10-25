@@ -12,6 +12,8 @@ const F = await import('../src/finder.js');
 const P = await import('../src/prospector.js');
 const { fetchPage } = await import('../src/safefetch.js');
 const { attachLists } = await import('../src/contacts.js');
+const D = await import('../src/discover.js');
+const { merge } = await import('../src/render.js');
 await migrate();
 
 let pass = 0, fail = 0;
@@ -57,6 +59,12 @@ const SITES = {
   'https://nopage.ng/': { status: 404 },
   'https://empty.ng/robots.txt': { status: 404 },
   'https://empty.ng/': { body: page('Nothing printed here.') },
+  'https://pair.ng/robots.txt': { status: 404 },
+  'https://pair.ng/': { body: `<html><head><title>Home | Pair Ltd</title><script type="application/ld+json">{"@context":"https://schema.org","@type":"LocalBusiness","name":"Pair Ventures Ltd","email":"mailto:owner@pair.ng","telephone":"+234 803 000 1111"}</script></head><body><a href="tel:+2348030001111">Call</a><a href="mailto:ada.obi@pair.ng">Ada</a> info@pair.ng sales@pair.ng ben.eze@pair.ng</body></html>` },
+  'https://hidden.ng/robots.txt': { status: 404 },
+  'https://hidden.ng/': { body: page('Welcome to Hidden.') },
+  'https://hidden.ng/sitemap.xml': { status: 200, type: 'application/xml', body: '<urlset><url><loc>https://hidden.ng/reach-us</loc></url><url><loc>https://hidden.ng/shop/item-1</loc></url></urlset>' },
+  'https://hidden.ng/reach-us': { body: page('Talk to us: lead@hidden.ng') },
   'https://www.redir.ng/robots.txt': { status: 404 },
   'https://www.redir.ng/': { body: page('Reach us: sales@redir.ng') }
 };
@@ -104,7 +112,7 @@ const ws = await one(`INSERT INTO workspaces (name, slug, from_email, sending_do
 const ws2 = await one(`INSERT INTO workspaces (name, slug) VALUES ('Other', 'other') RETURNING *`);
 await query(`INSERT INTO contacts (workspace_id, email, status) VALUES ($1, 'known@dup.ng', 'subscribed'), ($1, 'gone@dup.ng', 'unsubscribed')`, [ws.id]);
 await query(`INSERT INTO suppressions (workspace_id, email, reason) VALUES ($1, 'new@dup.ng', 'bounced')`, [ws.id]);
-const job = await P.createJob(ws.id, null, ['https://acme.ng', 'https://dup.ng', 'https://shop.de', 'https://blocked.ng', 'https://empty.ng', 'https://down.ng', 'https://mailinator.com']);
+const job = await P.createJob(ws.id, null, ['https://acme.ng', 'https://dup.ng', 'https://shop.de', 'https://blocked.ng', 'https://empty.ng', 'https://down.ng', 'https://mailinator.com'], { perCompany: 0 });
 check('only one search at a time per workspace', await P.createJob(ws.id, null, ['https://x.ng']).then(() => false, (e) => e.status === 409));
 SITES['https://mailinator.com/robots.txt'] = { status: 404 };
 SITES['https://mailinator.com/'] = { body: page('postmaster@mailinator.com team@mailinator.com') };
@@ -127,6 +135,63 @@ const plist = await one(`SELECT * FROM lists WHERE workspace_id = $1 AND kind = 
 check('they sit on a list called Prospects', plist?.name === 'Prospects' && (await one(`SELECT count(*)::int AS n FROM list_contacts WHERE list_id = $1`, [plist.id])).n === 4);
 check('the counters add up', d1.job.saved === 4 && d1.job.found === d1.results.length);
 check('another workspace sees nothing', (await P.jobDetail(ws2.id, job.id)) === null);
+
+
+/* ---------- richer leads ---------- */
+const meta = F.extractMeta('<html><head><title>Home | Pair Ltd</title><meta property="og:site_name" content="Pair &amp; Sons"><script type="application/ld+json">{"@type":"LocalBusiness","name":"Pair Ventures Ltd","telephone":"+234 803 000 1111","email":"hello@pair.ng"}</script></head><a href="tel:+234 80 1234 5678">x</a></html>');
+check('reads the business name, phone and email from structured data', meta.company === 'Pair Ventures Ltd' && meta.phone === '+234 803 000 1111' && meta.emails.includes('hello@pair.ng'), JSON.stringify(meta));
+check('falls back to the site name, then the page title', F.extractMeta('<meta property="og:site_name" content="Pair &amp; Sons"><title>Home</title>').company === 'Pair & Sons' && F.extractMeta('<title>Home | Acme Bakery Ltd</title>').company === 'Acme Bakery Ltd' && F.extractMeta('<title>Welcome</title>').company === null);
+check('broken structured data does not stop anything', F.extractMeta('<script type="application/ld+json">{nope</script><title>Zed Co</title>').company === 'Zed Co');
+check('named people, shared addresses and the rest are told apart', F.classifyAddress('ada.obi@x.ng').kind === 'person' && F.classifyAddress('ada.obi@x.ng').first_name === 'Ada' && F.classifyAddress('info@x.ng').kind === 'role' && F.classifyAddress('sales.team@x.ng').kind === 'role' && F.classifyAddress('chidi@x.ng').kind === 'other' && F.classifyAddress('ceo.office@x.ng').kind === 'role');
+check('better leads score higher', F.scoreLead({ kind: 'person', company: 'A', phone: '1' }) > F.scoreLead({ kind: 'person' }) && F.scoreLead({ kind: 'person' }) > F.scoreLead({ kind: 'role' }) && F.scoreLead({ kind: 'role' }) > F.scoreLead({ kind: 'role', free: true }));
+check('a site with no contact link: the sitemap finds the page', (asked.length = 0, r = await F.findEmails('hidden.ng', { ...deps.find }), r.emails.some((x) => x.email === 'lead@hidden.ng') && asked.some((a) => a.url.endsWith('/sitemap.xml')) && !asked.some((a) => /shop\/item/.test(a.url))), JSON.stringify(r.pages));
+
+/* ---------- finding businesses ---------- */
+check('a query is built from a type, a city and a country', /ISO3166-1"="NG".*name"="Abuja".*amenity"="restaurant/.test(D.buildQuery({ category: 'restaurants', city: 'Abuja', country: 'NG' })));
+const bad = (o) => { try { D.buildQuery({ category: 'restaurants', city: 'Abuja', country: 'NG', ...o }); return false; } catch { return true; } };
+check('nothing typed can change the query', bad({ city: 'Abuja"]; out;' }) && bad({ city: 'A\\"x' }) && bad({ city: '' }) && bad({ city: 'x'.repeat(80) }) && bad({ country: 'XX' }) && bad({ category: 'rm -rf' }) && !bad({ city: "Port Harcourt" }) && !bad({ city: "N'Djamena" }) && !bad({ city: 'Ibadan-North' }));
+const osm = { elements: [
+  { type: 'node', id: 1, tags: { name: 'Mama Put', website: 'https://www.mamaput.ng/menu', phone: '+234 1; +234 2', 'addr:city': 'Abuja' } },
+  { type: 'node', id: 2, tags: { name: 'Mama Put Annex', website: 'mamaput.ng' } },
+  { type: 'way', id: 3, tags: { name: 'Facebook Only', website: 'https://facebook.com/page' } },
+  { type: 'node', id: 4, tags: { name: 'Email Only', email: 'hello@emailonly.ng;other@x.ng' } },
+  { type: 'node', id: 5, tags: { website: 'https://noname.ng' } },
+  { type: 'node', id: 6, tags: { name: 'Nothing' } },
+  { type: 'node', id: 7, tags: { name: 'Local', website: 'http://127.0.0.1/x' } }
+] };
+const biz = D.readBusinesses(osm, { city: 'Abuja', category: 'restaurants' });
+check('businesses are read, deduped by website, social pages and nameless ones dropped', biz.length === 2 && biz[0].website === 'https://www.mamaput.ng' && biz[0].phone === '+234 1' && biz[1].email === 'hello@emailonly.ng' && biz[1].website === null, JSON.stringify(biz));
+check('every business remembers its map page', biz.every((b) => /^https:\/\/www\.openstreetmap\.org\/(node|way)\/\d+$/.test(b.listed_page)));
+let sentUrl = '';
+const found = await D.discoverBusinesses({ category: 'hotels', city: 'Lagos', country: 'NG' }, { get: async (u, o) => { sentUrl = u; return { status: 200, type: 'application/json', body: JSON.stringify(osm), ua: o.userAgent }; } });
+check('a search asks the public map servers politely and returns businesses', found.total === 2 && sentUrl.startsWith('https://overpass-api.de/api/interpreter?data=') && !sentUrl.includes('"') );
+check('if the first map server fails the second is tried', (await D.discoverBusinesses({ category: 'hotels', city: 'Lagos', country: 'NG' }, { get: (() => { let n = 0; return async () => (++n === 1 ? { status: 504 } : { status: 200, type: 'application/json', body: JSON.stringify(osm) }); })() })).total === 2);
+check('and a clear error if none answer', await D.discoverBusinesses({ category: 'hotels', city: 'Lagos', country: 'NG' }, { get: async () => ({ error: 'ETIMEOUT' }) }).then(() => false, (e) => e.status === 502));
+
+/* ---------- saving richer leads ---------- */
+const ws3 = await one(`INSERT INTO workspaces (name, slug) VALUES ('Third', 'third') RETURNING *`);
+const j3 = await P.createJob(ws3.id, null, ['https://pair.ng'], { perCompany: 2 });
+await P.runNextJob(deps);
+const d3 = await P.jobDetail(ws3.id, j3.id);
+const by3 = (e) => d3.results.find((x) => x.email === e);
+check('the two best addresses at a company are kept, the rest held back', d3.results.filter((x) => x.status === 'saved').length === 2 && d3.results.filter((x) => x.status === 'extra').length >= 2, JSON.stringify(d3.results.map((x) => [x.email, x.status, x.score])));
+check('named people come first', by3('ada.obi@pair.ng')?.status === 'saved' && by3('ben.eze@pair.ng')?.status === 'saved' && by3('ada.obi@pair.ng').kind === 'person');
+check('shared addresses are marked as such', by3('info@pair.ng')?.kind === 'role' && by3('info@pair.ng')?.status === 'extra');
+const ada = await one(`SELECT * FROM contacts WHERE workspace_id = $1 AND email = 'ada.obi@pair.ng'`, [ws3.id]);
+check('the contact gets a name, company, phone and where it came from', ada.first_name === 'Ada' && ada.last_name === 'Obi' && ada.attributes.company === 'Pair Ventures Ltd' && ada.attributes.phone === '+234 803 000 1111' && ada.attributes.website === 'https://pair.ng' && ada.tags.includes('person') && ada.tags.includes('prospect'), JSON.stringify(ada));
+check('so an email can say their name and company', merge('Hi {{first_name|there}}, about {{company}}', ada) === 'Hi Ada, about Pair Ventures Ltd');
+check('the results table can rank by score', d3.results[0].status === 'saved' && d3.results[0].score >= d3.results[1].score);
+check('the owner@pair.ng address in the structured data was found too', !!by3('owner@pair.ng'));
+
+await query(`UPDATE prospect_jobs SET status = 'done' WHERE workspace_id = $1`, [ws3.id]);
+const listed = { url: 'https://www.openstreetmap.org/node/9', company: 'Mama Put', phone: '+234 1', category: 'Restaurants and cafes', city: 'Abuja', email: 'mama@mamaput.ng', listed_page: 'https://www.openstreetmap.org/node/9' };
+asked.length = 0;
+const j4 = await P.createJob(ws3.id, null, [listed, { url: 'https://empty.ng', company: 'Empty Co', email: 'owner@empty.ng', listed_page: 'https://www.openstreetmap.org/node/10' }], { perCompany: 1 });
+await P.runNextJob(deps);
+const d4 = await P.jobDetail(ws3.id, j4.id);
+check('a business listed with only an email is saved without visiting anything', d4.results.find((x) => x.email === 'mama@mamaput.ng')?.status === 'saved' && !asked.some((a) => /openstreetmap/.test(a.url)));
+check('its page, company and city are recorded', (await one(`SELECT source_url, attributes FROM contacts WHERE email = 'mama@mamaput.ng'`)).source_url === 'https://www.openstreetmap.org/node/9' && (await one(`SELECT attributes FROM contacts WHERE email = 'mama@mamaput.ng'`)).attributes.company === 'Mama Put');
+check('an email from the map is used even when the website shows none', d4.results.find((x) => x.email === 'owner@empty.ng')?.status === 'saved');
 
 /* ---------- keeping prospects apart ---------- */
 const news = await one(`INSERT INTO lists (workspace_id, name) VALUES ($1, 'Newsletter') RETURNING id`, [ws.id]);

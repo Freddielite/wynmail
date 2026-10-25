@@ -60,7 +60,7 @@ export async function probe(url, { timeout = 4000, allowPrivate = false } = {}) 
 // Same guard as probe(): every connection re-resolves the name and refuses private addresses, only http and https
 // on the standard ports, no logins in the address. Follows up to 3 redirects, and only when allowRedirect says the
 // new address is still the same site. Reads at most maxBytes, and only text pages.
-export async function fetchPage(url, { timeout = 8000, maxBytes = 1500000, userAgent = 'WynmailFinder/1.0', accept = 'text/html,application/xhtml+xml', allowRedirect = () => false, allowPrivate = false } = {}) {
+export async function fetchPage(url, { timeout = 8000, maxBytes = 1500000, userAgent = 'WynmailFinder/1.0', accept = 'text/html,application/xhtml+xml', types = /^(text\/|application\/xhtml)/, allowRedirect = () => false, allowPrivate = false } = {}) {
   let current;
   try { current = new URL(url); } catch { return { error: 'EBADURL' }; }
   for (let hop = 0; hop <= 3; hop++) {
@@ -68,7 +68,7 @@ export async function fetchPage(url, { timeout = 8000, maxBytes = 1500000, userA
     if (!allowPrivate && current.port && !['80', '443'].includes(current.port)) return { error: 'EBLOCKED' };
     const host = current.hostname.replace(/^\[|\]$/g, '');
     if (!allowPrivate && net.isIP(host) && isPrivateIp(host)) return { error: 'EBLOCKED' };
-    const res = await getOnce(current, { timeout, maxBytes, userAgent, accept, allowPrivate });
+    const res = await getOnce(current, { timeout, maxBytes, userAgent, accept, types, allowPrivate });
     if (res.error) return res;
     if ([301, 302, 303, 307, 308].includes(res.status) && res.location) {
       let next;
@@ -82,7 +82,7 @@ export async function fetchPage(url, { timeout = 8000, maxBytes = 1500000, userA
   return { error: 'ETOOMANYREDIRECTS' };
 }
 
-function getOnce(u, { timeout, maxBytes, userAgent, accept, allowPrivate }) {
+function getOnce(u, { timeout, maxBytes, userAgent, accept, types, allowPrivate }) {
   return new Promise((resolve) => {
     const lib = u.protocol === 'https:' ? https : http;
     const req = lib.request(u, {
@@ -92,7 +92,7 @@ function getOnce(u, { timeout, maxBytes, userAgent, accept, allowPrivate }) {
     }, (res) => {
       const type = String(res.headers['content-type'] || '').toLowerCase();
       const out = { status: res.statusCode, location: res.headers.location, type };
-      if (res.statusCode !== 200 || !/^(text\/|application\/xhtml)/.test(type)) { res.destroy(); return resolve(out); }
+      if (res.statusCode !== 200 || !types.test(type)) { res.destroy(); return resolve(out); }
       const enc = String(res.headers['content-encoding'] || '').toLowerCase();
       const stream = enc === 'gzip' || enc === 'deflate' ? res.pipe(zlib.createUnzip()) : enc && enc !== 'identity' ? null : res;
       if (!stream) { res.destroy(); return resolve({ ...out, error: 'EENCODING' }); }

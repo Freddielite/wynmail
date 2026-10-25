@@ -121,3 +121,9 @@
 119. `test(smtp): add provider, queue and route tests against a real local SMTP server`
 120. `feat(prospector): collect Gmail, Yahoo and other free inboxes printed on a business site`
 121. `fix(web): remove the underline on link buttons, give explanation boxes normal text wrapping, and animate the notifications button and panel`
+122. `feat(prospector): find businesses by type, city and country from OpenStreetMap, with injection-safe queries and a daily limit`
+123. `feat(finder): read schema.org data, the business name and phone, and use the sitemap when the home page has no contact link`
+124. `feat(prospector): tell named people from shared addresses, score every lead, and keep only the best addresses per company`
+125. `feat(prospector): save company, phone, type and city on each contact so emails can use merge tags like company`
+126. `feat(web): add Find businesses, addresses-per-company choice, richer results and CSV download to the Prospector page`
+127. `test(prospector): cover discovery, structured data, sitemap, scoring, per-company limits and the new API`

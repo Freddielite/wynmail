@@ -2,9 +2,10 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { Btn, useGuard, usePolling, when } from '../ui.jsx';
+import Select from '../Select.jsx';
 
 const LABEL = {
-  saved: ['Saved', 'green'], duplicate: ['Already a contact', 'gray'], suppressed: ['Do not email', 'red'], free_email: ['Personal inbox', 'gray'],
+  saved: ['Saved', 'green'], extra: ['Held back', 'gray'], duplicate: ['Already a contact', 'gray'], suppressed: ['Do not email', 'red'], free_email: ['Personal inbox', 'gray'],
   eu: ['EU, skipped', 'gray'], invalid: ['Bad address', 'amber']
 };
 const SITE = { pending: 'Waiting', done: 'Done', failed: 'Could not read', blocked: 'Not allowed', skipped: 'Stopped' };
@@ -21,6 +22,9 @@ export default function Prospector() {
   const [rejected, setRejected] = useState([]);
   const [show, setShow] = useState('all');
   const [denied, setDenied] = useState(false);
+  const [find, setFind] = useState({ category: 'restaurants', city: '', country: 'NG' });
+  const [found, setFound] = useState(null); // businesses from the map search
+  const [perCompany, setPerCompany] = useState('2');
 
   const load = async () => {
     try {
@@ -42,8 +46,27 @@ export default function Prospector() {
     reader.readAsText(f);
   };
 
+  const search = guard(async () => {
+    const r = await api.prospectorDiscover(find);
+    setFound(r);
+    return r.total ? `Found ${r.total} businesses` : 'No businesses found. Try another city or type.';
+  });
+  const startFound = guard(async () => {
+    const r = await api.prospectorStart({ businesses: found.businesses, per_company: Number(perCompany) });
+    setFound(null); setOpen(await api.prospectorJob(r.job.id)); setJobs(await api.prospectorJobs());
+    return `Searching ${r.job.total_sites} businesses`;
+  });
+  const csvOut = () => {
+    const cols = [['Company', 'company'], ['Email', 'email'], ['Type', 'kind'], ['Score', 'score'], ['Phone', 'phone'], ['Website', 'site_url'], ['Found on', 'page_url'], ['Result', 'status']];
+    const q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const body = [cols.map((c) => q(c[0])).join(','), ...(open?.results || []).map((r) => cols.map((c) => q(r[c[1]])).join(','))].join('\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([body], { type: 'text/csv' }));
+    a.download = `prospects-search-${open.job.id}.csv`; a.click();
+  };
+
   const start = guard(async () => {
-    const r = await api.prospectorStart({ text, csv });
+    const r = await api.prospectorStart({ text, csv, per_company: Number(perCompany) });
     setRejected(r.rejected || []); setText(''); setCsv(''); setFileName('');
     setOpen(await api.prospectorJob(r.job.id)); setJobs(await api.prospectorJobs());
     return `Searching ${r.job.total_sites} websites`;
@@ -69,13 +92,65 @@ export default function Prospector() {
       </div>
 
       <div className="card" style={{ marginBottom: 20 }}>
-        <h3>Websites to search</h3>
+        <h3>Find businesses</h3>
+        <p className="muted" style={{ margin: '4px 0 10px' }}>Pick a type of business and a city. Wynmail lists the ones with a website or email from OpenStreetMap, then looks for contact emails on their sites.</p>
+        <div className="row" style={{ alignItems: 'flex-end' }}>
+          <div className="field" style={{ flex: 2 }}><label>Type of business</label>
+            <Select value={find.category} onChange={(e) => setFind({ ...find, category: e.target.value })}>
+              {Object.entries(info?.categories || { restaurants: 'Restaurants and cafes' }).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+            </Select></div>
+          <div className="field" style={{ flex: 2 }}><label>City or town</label>
+            <input value={find.city} placeholder="Abuja" onChange={(e) => setFind({ ...find, city: e.target.value })} onKeyDown={(e) => e.key === 'Enter' && find.city.trim() && search()} /></div>
+          <div className="field" style={{ flex: 2 }}><label>Country</label>
+            <Select value={find.country} onChange={(e) => setFind({ ...find, country: e.target.value })}>
+              {Object.entries(info?.countries || { NG: 'Nigeria' }).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+            </Select></div>
+        </div>
+        <Btn busyText="Searching the map..." disabled={!find.city.trim()} onClick={search}>Find businesses</Btn>
+
+        {found && (
+          <div style={{ marginTop: 16 }}>
+            <p><strong>{found.total}</strong> businesses found: {found.with_website} with a website, {found.with_email} with an email already listed.
+              {found.total > (info?.max_sites || 100) && <span className="muted"> The first {info?.max_sites || 100} will be searched. Run it again for more.</span>}</p>
+            {found.total === 0 && <p className="muted">Free map data is thinner in some cities. Try a bigger city, another type, or paste websites below.</p>}
+            {found.total > 0 && (
+              <>
+                <div className="table-wrap" style={{ margin: '10px 0' }}>
+                  <table className="stack">
+                    <thead><tr><th>Business</th><th>Website</th><th>Phone</th></tr></thead>
+                    <tbody>
+                      {found.businesses.slice(0, 8).map((b, i) => (
+                        <tr key={i}><td data-label="Business"><strong>{b.name}</strong></td><td data-label="Website">{b.website ? b.website.replace(/^https?:\/\//, '') : <span className="muted">{b.email ? 'email listed' : ''}</span>}</td><td data-label="Phone">{b.phone || ''}</td></tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {found.total > 8 && <p className="muted">and {found.total - 8} more.</p>}
+                <div className="row" style={{ alignItems: 'flex-end', marginTop: 10 }}>
+                  <div className="field" style={{ maxWidth: 260 }}><label>Addresses to keep per company</label>
+                    <Select value={perCompany} onChange={(e) => setPerCompany(e.target.value)}>
+                      <option value="1">1 (the best one)</option><option value="2">2</option><option value="3">3</option><option value="0">All of them</option>
+                    </Select></div>
+                  <Btn busyText="Starting..." onClick={startFound}>Find their emails</Btn>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="card" style={{ marginBottom: 20 }}>
+        <h3>Or paste your own websites</h3>
         <p className="muted" style={{ margin: '4px 0 10px' }}>One website per line, or upload a CSV with a Website column. Up to {info?.max_sites || 100} at a time.</p>
         <div className="field"><textarea rows="6" placeholder={'acme.ng\nbetaltd.com\nhttps://www.gamma.co.ng'} value={text} onChange={(e) => setText(e.target.value)} /></div>
         <div className="row" style={{ marginBottom: 12 }}>
           <input type="file" accept=".csv,text/csv" onChange={readFile} />
           {fileName && <span className="muted">{fileName}</span>}
         </div>
+        <div className="field" style={{ maxWidth: 260 }}><label>Addresses to keep per company</label>
+          <Select value={perCompany} onChange={(e) => setPerCompany(e.target.value)}>
+            <option value="1">1 (the best one)</option><option value="2">2</option><option value="3">3</option><option value="0">All of them</option>
+          </Select></div>
         <Btn busyText="Starting..." disabled={!text.trim() && !csv} onClick={start}>Find emails</Btn>
         {rejected.length > 0 && (
           <p className="muted" style={{ marginTop: 10 }}>Skipped {rejected.length} that are not company websites: {rejected.slice(0, 5).map((r) => r.input).join(', ')}{rejected.length > 5 ? '...' : ''}</p>
@@ -108,25 +183,27 @@ export default function Prospector() {
             {[['all', 'All'], ['saved', `Saved (${counts.saved || 0})`], ['skipped', 'Skipped']].map(([k, label]) => (
               <button key={k} className={`btn sm ${show === k ? '' : 'ghost'}`} onClick={() => setShow(k)}>{label}</button>
             ))}
+            <button className="btn ghost sm" onClick={csvOut} disabled={!open.results.length}>Download CSV</button>
           </div>
 
           <div className="table-wrap">
             <table className="stack">
-              <thead><tr><th>Email</th><th>Website</th><th>Found on</th><th>Result</th><th></th></tr></thead>
+              <thead><tr><th>Company</th><th>Email</th><th>Type</th><th>Found on</th><th>Result</th><th></th></tr></thead>
               <tbody>
                 {rows.map((r) => {
                   const [label, tone] = LABEL[r.status] || [r.status, 'gray'];
                   return (
                     <tr key={r.id}>
-                      <td data-label="Email"><strong>{r.email}</strong></td>
-                      <td data-label="Website">{r.site_url.replace(/^https?:\/\//, '')}</td>
+                      <td data-label="Company"><strong>{r.company || r.site_url.replace(/^https?:\/\//, '').replace(/^www\.openstreetmap\.org.*/, '')}</strong>{r.phone && <div className="muted" style={{ fontSize: 12 }}>{r.phone}</div>}</td>
+                      <td data-label="Email">{r.email}</td>
+                      <td data-label="Type">{r.kind ? <span className={`pill ${r.kind === 'person' ? 'green' : 'gray'}`}>{r.kind === 'person' ? 'Person' : r.kind === 'role' ? 'Shared' : 'Other'}</span> : ''}{r.score ? <div className="muted" style={{ fontSize: 12 }}>score {r.score}</div> : null}</td>
                       <td data-label="Found on"><a href={r.page_url} target="_blank" rel="noreferrer noopener">{new URL(r.page_url).pathname}</a></td>
                       <td data-label="Result"><span className={`pill ${tone}`}>{label}</span>{r.status !== 'saved' && <div className="muted" style={{ fontSize: 12 }}>{r.note}</div>}</td>
                       <td className="actions">{r.status === 'saved' && r.still_saved && <Btn className="btn danger sm" busyText="Removing..." onClick={remove(r)}>Remove</Btn>}{r.status === 'saved' && !r.still_saved && <span className="muted">Removed</span>}</td>
                     </tr>
                   );
                 })}
-                {!rows.length && <tr><td colSpan="5" className="muted">{running ? 'Searching...' : 'Nothing here.'}</td></tr>}
+                {!rows.length && <tr><td colSpan="6" className="muted">{running ? 'Searching...' : 'Nothing here.'}</td></tr>}
               </tbody>
             </table>
           </div>

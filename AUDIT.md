@@ -102,6 +102,9 @@ Checked against the "what a vibe-coded app still needs" list. Status: **DONE** a
 | Admin panel, support tooling | PARTIAL | Clients page; activity log API is there, no UI yet. |
 | Accounts in the company's name, bus factor | ORG | Check GitHub, Render, Vercel, Supabase, Resend, domain registrar are all under Wyntek. |
 
+## Prospector upgrades
+Business search uses OpenStreetMap's public Overpass servers: typed text is validated (letters only, fixed lists for type and country) before it goes in a query, requests identify Wynmail, are capped in size and time, and are limited per workspace per day. Nothing is scraped from Google or social networks. Address guessing is not offered on purpose.
+
 ## SMTP mailboxes (added at your request)
 Server address pinned to a public IP at connect time (no DNS tricks into the private network), port allow-list, certificate verified, STARTTLS required, 30s timeouts. Caps are claimed atomically in the database, so two servers cannot overspend. Auth failures switch a mailbox off. Gap: no bounce or complaint feed from SMTP, so the spam guard's live pause and the learning see only opens, clicks and immediate rejections.
 

@@ -11,6 +11,7 @@ jobs:
       LOG: /tmp/server.log
       PROSPECT_DELAY_MS: "0"
       SMTP_TEST_MODE: "1"
+      PROSPECT_DISCOVER_FIXTURE: test/fixtures/overpass.json
       ENABLE_SSO: "1"
     steps:
       - uses: actions/checkout@v4

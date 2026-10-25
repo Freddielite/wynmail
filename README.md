@@ -255,6 +255,16 @@ Finds business emails printed on company websites and saves new ones to a **Pros
 - Prospects do not start automations unless the automation allows imports.
 - Tests: `npm run test:prospector` (no network needed).
 
+**Find businesses (no list needed):** pick a type (restaurants, clinics, schools, real estate, fashion...), a city and a country. Wynmail lists businesses from OpenStreetMap that have a website or email, then searches their sites. 20 business searches a day per workspace.
+
+**What each lead carries:** company name, phone, type, city, the website and the exact page the address came from. Merge tags work in your emails: `{{company}}`, `{{first_name|there}}`, `{{city}}`, `{{category}}`. Named people (`ada.obi@`) get a first and last name and are marked **Person**; shared addresses (`info@`, `sales@`) are marked **Shared**.
+
+**Ranking and per-company limit:** every address gets a score (named person, own domain, known company, phone). By default the best 2 per company are saved and the rest are held back so one business is not over-emailed (choose 1, 2, 3 or all).
+
+**What it reads:** home, contact, about and team pages, plus the site's schema.org data, `mailto:` links, Cloudflare-hidden and `[at]` addresses, and the sitemap when the home page has no contact link. Results can be downloaded as CSV.
+
+**Honest limits:** OpenStreetMap coverage is thinner in some cities, sites that load emails with JavaScript only, or show just a contact form, give nothing, and guessed addresses (`info@`) are deliberately not made up, because bounces ruin a sender's reputation.
+
 Before sending to prospects you still need a way to send to strangers (Resend does not allow it) and a warmed-up sending domain. See the plan, parts 2 to 4.
 
 ## Sending through your own mailboxes (SMTP)

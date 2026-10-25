@@ -136,6 +136,7 @@ export const api = {
   updateMailbox: (id, b) => request(ws(`/mailboxes/${id}`), { method: 'PUT', body: b }),
   deleteMailbox: (id) => request(ws(`/mailboxes/${id}`), { method: 'DELETE' }),
   testMailbox: (id) => request(ws(`/mailboxes/${id}/test`), { method: 'POST' }),
+  prospectorDiscover: (b) => request(ws('/prospector/discover'), { method: 'POST', body: b }),
   prospectorInfo: () => request(ws('/prospector/info')),
   prospectorJobs: () => request(ws('/prospector/jobs')),
   prospectorJob: (id) => request(ws(`/prospector/jobs/${id}`)),
