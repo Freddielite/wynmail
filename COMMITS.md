@@ -107,3 +107,10 @@
 105. `test(web): add dropdown tests and run them in CI`
 106. `fix(sso): send browsers back to sign-in with a plain message when SSO is not set up, instead of showing JSON`
 107. `chore(sso): switch SSO and SCIM off behind ENABLE_SSO and VITE_ENABLE_SSO until a customer needs them`
+108. `fix(web): show the workspace switcher and notifications on phones, and add space under the Check my domain button`
+109. `feat(safefetch): add a guarded page fetcher with redirect rules, gzip, size and time caps`
+110. `feat(prospector): add the email finder with robots.txt, polite pacing, Cloudflare-hidden and obfuscated address decoding`
+111. `feat(prospector): add search jobs that check, dedupe and save business emails to a Prospects list with their source page`
+112. `feat(contacts): keep prospects and signed-up people on separate lists, and record where each prospect was found`
+113. `feat(web): add the Prospector page`
+114. `test(prospector): add finder, runner and API tests and run them in CI`

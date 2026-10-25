@@ -2,6 +2,7 @@ import http from 'node:http';
 import https from 'node:https';
 import dns from 'node:dns';
 import net from 'node:net';
+import zlib from 'node:zlib';
 
 // The link check fetches addresses typed by users, so it must never reach into our own network.
 export function isPrivateIp(ip) {
@@ -53,4 +54,58 @@ export async function probe(url, { timeout = 4000, allowPrivate = false } = {}) 
   let r = await once(u.href, 'HEAD', { timeout, allowPrivate });
   if (r.status && [400, 403, 405, 501].includes(r.status)) r = await once(u.href, 'GET', { timeout, allowPrivate });
   return r;
+}
+
+// Fetches one web page and returns its text. Used by the email finder.
+// Same guard as probe(): every connection re-resolves the name and refuses private addresses, only http and https
+// on the standard ports, no logins in the address. Follows up to 3 redirects, and only when allowRedirect says the
+// new address is still the same site. Reads at most maxBytes, and only text pages.
+export async function fetchPage(url, { timeout = 8000, maxBytes = 1500000, userAgent = 'WynmailFinder/1.0', accept = 'text/html,application/xhtml+xml', allowRedirect = () => false, allowPrivate = false } = {}) {
+  let current;
+  try { current = new URL(url); } catch { return { error: 'EBADURL' }; }
+  for (let hop = 0; hop <= 3; hop++) {
+    if (!['http:', 'https:'].includes(current.protocol) || current.username || current.password) return { error: 'EBLOCKED' };
+    if (!allowPrivate && current.port && !['80', '443'].includes(current.port)) return { error: 'EBLOCKED' };
+    const host = current.hostname.replace(/^\[|\]$/g, '');
+    if (!allowPrivate && net.isIP(host) && isPrivateIp(host)) return { error: 'EBLOCKED' };
+    const res = await getOnce(current, { timeout, maxBytes, userAgent, accept, allowPrivate });
+    if (res.error) return res;
+    if ([301, 302, 303, 307, 308].includes(res.status) && res.location) {
+      let next;
+      try { next = new URL(res.location, current); } catch { return { status: res.status, error: 'EBADREDIRECT' }; }
+      if (!allowRedirect(current, next)) return { status: res.status, redirect: next.href, error: 'EREDIRECT' };
+      current = next;
+      continue;
+    }
+    return { ...res, url: current.href };
+  }
+  return { error: 'ETOOMANYREDIRECTS' };
+}
+
+function getOnce(u, { timeout, maxBytes, userAgent, accept, allowPrivate }) {
+  return new Promise((resolve) => {
+    const lib = u.protocol === 'https:' ? https : http;
+    const req = lib.request(u, {
+      method: 'GET', timeout, agent: false,
+      headers: { 'User-Agent': userAgent, Accept: accept, 'Accept-Encoding': 'gzip, deflate', 'Accept-Language': 'en' },
+      ...(allowPrivate ? {} : { lookup: guardedLookup })
+    }, (res) => {
+      const type = String(res.headers['content-type'] || '').toLowerCase();
+      const out = { status: res.statusCode, location: res.headers.location, type };
+      if (res.statusCode !== 200 || !/^(text\/|application\/xhtml)/.test(type)) { res.destroy(); return resolve(out); }
+      const enc = String(res.headers['content-encoding'] || '').toLowerCase();
+      const stream = enc === 'gzip' || enc === 'deflate' ? res.pipe(zlib.createUnzip()) : enc && enc !== 'identity' ? null : res;
+      if (!stream) { res.destroy(); return resolve({ ...out, error: 'EENCODING' }); }
+      const chunks = [];
+      let size = 0, done = false;
+      const finish = (extra = {}) => { if (done) return; done = true; res.destroy(); resolve({ ...out, body: Buffer.concat(chunks).toString('utf8'), ...extra }); };
+      stream.on('data', (c) => { size += c.length; chunks.push(c); if (size > maxBytes) finish({ truncated: true }); });
+      stream.on('end', () => finish());
+      stream.on('error', () => finish({ error: 'EREAD' }));
+      res.on('error', () => finish({ error: 'EREAD' }));
+    });
+    req.on('timeout', () => req.destroy(Object.assign(new Error('timeout'), { code: 'ETIMEOUT' })));
+    req.on('error', (e) => resolve({ error: e.code || e.message }));
+    req.end();
+  });
 }

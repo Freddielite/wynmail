@@ -230,5 +230,23 @@ check('only the owner can loosen the guard', (await call('PUT', w(''), { token: 
 check('the owner can set the threshold', (await call('PUT', w(''), { token: O, body: { risk_threshold: 90 } })).data.risk_threshold === 90);
 check('a threshold outside 10 to 100 is refused', (await call('PUT', w(''), { token: O, body: { risk_threshold: 5 } })).status === 400);
 
+/* ---------- prospector API ---------- */
+check('prospector is off for ordinary members by default', (await call('GET', w('/prospector/jobs'), { token: M })).status === 403);
+check('viewers cannot use it either', (await call('GET', w('/prospector/info'), { token: VW })).status === 403);
+check('the owner can', (await call('GET', w('/prospector/info'), { token: O })).data.max_sites === 100);
+await call('PUT', w(`/members/${uid}/permissions`), { token: O, body: { permissions: ['prospector.use'] } });
+check('it can be granted to one person', (await call('GET', w('/prospector/jobs'), { token: M })).status === 200);
+check('an empty search is refused', (await call('POST', w('/prospector/jobs'), { token: O, body: { text: '  ' } })).status === 400);
+check('local and private addresses are refused', (await call('POST', w('/prospector/jobs'), { token: O, body: { text: 'localhost\n127.0.0.1\n10.0.0.1' } })).status === 400);
+check('too many at once is refused', (await call('POST', w('/prospector/jobs'), { token: O, body: { sites: Array.from({ length: 101 }, (_, i) => `site${i}.ng`) } })).status === 400);
+const pj = await call('POST', w('/prospector/jobs'), { token: O, body: { text: 'wynmail-test-nonexistent.ng\nwww.wynmail-test-nonexistent.ng\nnot a site', csv: 'Website\nanother-nonexistent-test.ng' } });
+check('a search starts: duplicates merged, rubbish reported', pj.status === 200 && pj.data.job.total_sites === 2 && pj.data.rejected_count >= 1, JSON.stringify(pj.data).slice(0, 200));
+check('only one search at a time', (await call('POST', w('/prospector/jobs'), { token: O, body: { text: 'third-nonexistent-test.ng' } })).status === 409);
+check('another workspace cannot read it', (await call('GET', `/api/workspaces/1/prospector/jobs/${pj.data.job.id}`, { token: A })).status === 404);
+check('it can be stopped', (await call('POST', w(`/prospector/jobs/${pj.data.job.id}/cancel`), { token: O })).status === 200);
+const pd = await call('GET', w(`/prospector/jobs/${pj.data.job.id}`), { token: O });
+check('a stopped search stays stopped', pd.data.job.status === 'cancelled');
+check('starting a search is in the activity log', (await call('GET', w('/audit'), { token: O })).data.some((r) => r.action === 'prospector.job_created'));
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

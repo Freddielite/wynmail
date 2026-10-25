@@ -242,3 +242,17 @@ See `AUDIT.md` for the full checklist with status, and `RUNBOOK.md` for deploy, 
 - **SSO and SCIM (switched off):** SAML 2.0 sign-in and SCIM 2.0 provisioning are built and tested but disabled. Turn on with `ENABLE_SSO=1` on the server and `VITE_ENABLE_SSO=1` when building the web app. Also set `PUBLIC_URL`. Only platform admins edit it. See `RUNBOOK.md`.
 - **Spam-risk guard:** emails that look likely to land in spam are held and the owner decides; it learns from your past campaigns. Settings > Hold emails that look like spam.
 - **Tests:** `test:hardening`, `test:features` (live server) and `test:spamrisk` (in-process) cover all of the above.
+
+## Prospector
+
+Finds business emails printed on company websites and saves new ones to a **Prospects** list. Team > permissions: `prospector.use` (owner by default).
+
+- Paste websites or upload a CSV with a Website column. Up to 100 at a time, 300 a day per workspace.
+- Reads the home page plus contact, about and team pages. One request every 2 to 3 seconds, `robots.txt` obeyed (including Crawl-delay), sends a `WynmailFinder` user agent.
+- Keeps only addresses on the company's own domain. Personal inboxes (Gmail, Yahoo...) and EU addresses are not collected. Disposable and unreachable domains are refused.
+- Never re-adds anyone already a contact, unsubscribed, bounced or marked as spam.
+- Each contact stores where it came from (`consent_source = prospector`, `source_url`, `source_found_at`). Prospects only live on the Prospects list and can never be put on other lists, and people who signed up can never be put on it.
+- Prospects do not start automations unless the automation allows imports.
+- Tests: `npm run test:prospector` (no network needed).
+
+Before sending to prospects you still need a way to send to strangers (Resend does not allow it) and a warmed-up sending domain. See the plan, parts 2 to 4.

@@ -13,11 +13,12 @@ export const PERMISSIONS = {
   'settings.write': 'Change workspace settings',
   'apikeys.manage': 'See, create and revoke API keys',
   'audit.read': 'Read the activity log',
+  'prospector.use': 'Find business emails on company websites',
   'team.manage': 'Add and remove people, change permissions, set up SSO'
 };
 export const ALL = Object.keys(PERMISSIONS);
 
-const MEMBER_DEFAULT = ALL.filter((p) => !['contacts.export', 'apikeys.manage', 'audit.read', 'team.manage'].includes(p));
+const MEMBER_DEFAULT = ALL.filter((p) => !['contacts.export', 'apikeys.manage', 'audit.read', 'team.manage', 'prospector.use'].includes(p));
 export const ROLE_DEFAULTS = {
   owner: ALL,
   admin: ALL,
@@ -37,6 +38,7 @@ export const cleanPermissions = (list) => (Array.isArray(list) ? [...new Set(lis
 // Which permission a request needs. Reading needs none (everyone in the workspace can look).
 // Anything not listed here and not a read is refused, so a new route is closed until it is listed.
 const RULES = [
+  [/^(GET|POST|PUT|DELETE)$/, /^\/prospector/, 'prospector.use'],
   [/^GET$/, /^\/api-keys/, 'apikeys.manage'],
   [/^GET$/, /^\/(contacts\/export|campaigns\/\d+\/export)$/, 'contacts.export'],
   [/^GET$/, /^\/audit$/, 'audit.read'],

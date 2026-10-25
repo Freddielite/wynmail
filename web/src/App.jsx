@@ -16,6 +16,7 @@ import ContactProfile from './pages/ContactProfile.jsx';
 import Forms from './pages/Forms.jsx';
 import Automations from './pages/Automations.jsx';
 import Bell from './pages/Notifications.jsx';
+import Prospector from './pages/Prospector.jsx';
 import { SSO_ENABLED } from './flags.js';
 import Select from './Select.jsx';
 
@@ -48,6 +49,9 @@ function Shell({ user, workspaces, onLogout }) {
     if (nav && active) nav.scrollTo({ left: active.offsetLeft - (nav.clientWidth - active.offsetWidth) / 2, behavior: 'smooth' });
   }, [pathname]);
 
+  const [canProspect, setCanProspect] = useState(false);
+  useEffect(() => { api.permissions().then((p) => setCanProspect(p.mine.includes('prospector.use'))).catch(() => setCanProspect(false)); }, [current?.id]);
+
   const switchWorkspace = (id) => { store.workspaceId = id; nav(0); };
 
   return (
@@ -65,6 +69,7 @@ function Shell({ user, workspaces, onLogout }) {
           <NavLink to="/analytics">Analytics</NavLink>
           <NavLink to="/segments">Segments</NavLink>
           <NavLink to="/automations">Automations</NavLink>
+          {canProspect && <NavLink to="/prospector">Prospector</NavLink>}
           <NavLink to="/api">API</NavLink>
           <NavLink to="/team">Team</NavLink>
           <NavLink to="/settings">Settings</NavLink>
@@ -102,6 +107,7 @@ function Shell({ user, workspaces, onLogout }) {
           <Route path="/team" element={<Team />} />
           <Route path="/settings" element={<Settings admin={!!user?.is_admin} />} />
           {user?.is_admin && <Route path="/clients" element={<Clients />} />}
+          <Route path="/prospector" element={<Prospector />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

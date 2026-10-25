@@ -125,7 +125,8 @@ export default function ContactProfile() {
             <h3>Consent</h3>
             <div className="table-wrap" style={{ marginTop: 8 }}><table><tbody>
               <tr><td className="muted">Joined</td><td>{when(c.created_at)}</td></tr>
-              <tr><td className="muted">Source</td><td>{c.consent_source || 'unknown'}</td></tr>
+              <tr><td className="muted">Source</td><td>{c.consent_source === 'prospector' ? 'Found on a website (not signed up)' : c.consent_source || 'unknown'}</td></tr>
+              {c.source_url && <tr><td className="muted">Found on</td><td><a href={c.source_url} target="_blank" rel="noreferrer noopener">{c.source_url}</a>{c.source_found_at ? <div className="muted">{when(c.source_found_at)}</div> : null}</td></tr>}
               <tr><td className="muted">Consent given</td><td>{c.consent_at ? when(c.consent_at) : 'not recorded'}</td></tr>
               {c.consent_text && <tr><td className="muted">They agreed to</td><td>{c.consent_text}</td></tr>}
               {c.consent_ip && <tr><td className="muted">From address</td><td>{c.consent_ip}</td></tr>}

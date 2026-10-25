@@ -34,6 +34,7 @@ import { abStats, abPlan, AB_MIN_AUDIENCE } from '../abtest.js';
 import { cleanTz, earliestInstant, LOCAL_RE } from '../timeutil.js';
 import automationsAdmin from './automationsAdmin.js';
 import { SSO_ENABLED } from '../flags.js';
+import prospectorRoutes from './prospector.js';
 import { audit, listAudit } from '../audit.js';
 import { archive, listDeleted, restore, kindOf, eraseNow } from '../archive.js';
 import { PERMISSIONS, permissionsOf, requiredPermission, cleanPermissions } from '../perms.js';
@@ -693,6 +694,7 @@ router.use('/profile', profileRoutes);
 router.use('/media', mediaAdmin);
 router.use('/analytics', analyticsRoutes);
 router.use('/automations', automationsAdmin);
+router.use('/prospector', prospectorRoutes);
 if (SSO_ENABLED) router.use('/', (await import('./ssoAdmin.js')).default); // SSO settings and SCIM tokens
 
 /* ---------- blocked addresses ---------- */

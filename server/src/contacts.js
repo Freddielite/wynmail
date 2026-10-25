@@ -39,8 +39,10 @@ export async function attachLists(workspaceId, contactId, listIds, { source = 'm
   }
   const added = await many(
     `INSERT INTO list_contacts (list_id, contact_id)
-     SELECT l.id, $2 FROM lists l WHERE l.workspace_id = $3 AND l.id = ANY($1::int[])
+     SELECT l.id, $2 FROM lists l JOIN contacts c ON c.id = $2 WHERE l.workspace_id = $3 AND l.id = ANY($1::int[])
        AND NOT EXISTS (SELECT 1 FROM list_optouts o WHERE o.contact_id = $2 AND o.list_id = l.id)
+       -- Prospects (found on websites) only ever sit on the Prospects list, and nobody else is ever put on it.
+       AND ((COALESCE(l.kind, '') = 'prospects') = (COALESCE(c.consent_source, '') = 'prospector'))
      ON CONFLICT DO NOTHING RETURNING list_id`,
     [listIds, contactId, workspaceId]
   );

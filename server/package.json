@@ -29,7 +29,8 @@
     "migrate:status": "node scripts/migrate.js status",
     "test:hardening": "node test/hardening.mjs",
     "test:features": "node test/features.mjs",
-    "test:spamrisk": "node test/spamrisk.mjs"
+    "test:spamrisk": "node test/spamrisk.mjs",
+    "test:prospector": "node test/prospector.mjs"
   },
   "keywords": [],
   "author": "",

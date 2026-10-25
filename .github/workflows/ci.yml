@@ -9,6 +9,7 @@ jobs:
       FORCE_PROVIDER: console
       MX_CHECK: "off"
       LOG: /tmp/server.log
+      PROSPECT_DELAY_MS: "0"
       ENABLE_SSO: "1"
     steps:
       - uses: actions/checkout@v4
@@ -21,7 +22,7 @@ jobs:
       - run: npm ci
       - run: npm audit --audit-level=high
       - name: Unit tests
-        run: npm run test:csv && npm run test:builder && npm run test:domain && npm run test:spamrisk && node test/deliverability-unit.mjs && node test/results-unit.mjs
+        run: npm run test:csv && npm run test:builder && npm run test:domain && npm run test:spamrisk && npm run test:prospector && node test/deliverability-unit.mjs && node test/results-unit.mjs
       - name: Migrations run forward and roll back
         run: |
           PGLITE_DIR=/tmp/pgm npm run migrate && PGLITE_DIR=/tmp/pgm npm run migrate:down -- 2 && PGLITE_DIR=/tmp/pgm npm run migrate

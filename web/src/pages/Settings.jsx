@@ -121,7 +121,7 @@ export default function Settings({ admin }) {
           <div className="card">
             <div className="between">
               <div><h3>DNS checklist</h3><p className="muted">Add these at your DNS host, then check them here.</p></div>
-              <Btn className="btn sm" busyText="Checking..." onClick={checkDomain}>Check my domain</Btn>
+              <Btn className="btn sm" style={{ marginBottom: 16 }} busyText="Checking..." onClick={checkDomain}>Check my domain</Btn>
             </div>
             {checks && checkNote && <p className="muted" style={{ margin: '12px 0' }}>{checkNote}</p>}
             {checks && (

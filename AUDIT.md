@@ -102,6 +102,9 @@ Checked against the "what a vibe-coded app still needs" list. Status: **DONE** a
 | Admin panel, support tooling | PARTIAL | Clients page; activity log API is there, no UI yet. |
 | Accounts in the company's name, bus factor | ORG | Check GitHub, Render, Vercel, Supabase, Resend, domain registrar are all under Wyntek. |
 
+## Prospector (added at your request)
+Built to a "polite crawler" standard: robots.txt, 2 to 3 second pauses, same-site only, no private addresses (SSRF-guarded fetcher), size and time caps, daily and per-job limits, one search per workspace at a time, audit-logged. Judgement calls it makes for you: no personal inboxes, no EU addresses by domain ending (a .com business in the EU still gets through), no one who ever unsubscribed or bounced. Legal duties stay with the sender: honest sender name, a working opt-out, your business address, and honouring opt-outs fast. Check the rules for the countries you email.
+
 ## Spam-risk guard (added at your request)
 A campaign is scored before it sends: the content checker's rules, blended with a model trained on this workspace's own past campaigns (complaints, hard bounces, opens far below normal). Above the threshold it is held, not sent; the owner gets an in-app notification and an email, and chooses Fix it or Send anyway (logged). While a campaign is sending, a complaint rate of 0.5% or hard bounces of 10% pause the unsent rest and notify the owner. Nothing can see the spam folder, so this is an estimate that improves with use; it needs about 8 sent campaigns, including some that did badly, before the model has a say.
 

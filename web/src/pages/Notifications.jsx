@@ -16,7 +16,7 @@ export default function Bell() {
   };
 
   return (
-    <div style={{ marginTop: 10 }}>
+    <div className="bell-wrap" style={{ marginTop: 10 }}>
       <button className="btn ghost sm" onClick={toggle} style={{ width: '100%' }}>
         Notifications{data.unread > 0 && <span className="pill red" style={{ marginLeft: 8 }}>{data.unread}</span>}
       </button>

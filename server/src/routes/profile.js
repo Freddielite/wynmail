@@ -11,7 +11,7 @@ const bad = (res, msg) => res.status(400).json({ error: msg });
 const okId = (v) => /^\d{1,9}$/.test(String(v));
 
 const load = (req) => one(
-  `SELECT id, email, first_name, last_name, status, attributes, tags, consent_source, consent_at, consent_text, consent_ip, created_at, unsubscribed_at, paused_until, max_per_week, timezone
+  `SELECT id, email, first_name, last_name, status, attributes, tags, consent_source, consent_at, consent_text, consent_ip, source_url, source_found_at, created_at, unsubscribed_at, paused_until, max_per_week, timezone
    FROM contacts WHERE id = $1 AND workspace_id = $2`, [Number(req.params.id), wid(req)]);
 
 router.get('/:id', async (req, res) => {

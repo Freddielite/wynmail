@@ -112,7 +112,7 @@ img, iframe { max-width: 100%; }
   .brand-tile { width: 36px; height: 36px; border-radius: 10px; }
   .brand-tile img { width: 24px; height: 24px; }
   .side-foot { display: contents; border: 0; padding: 0; }
-  .side-foot > div { display: none; }
+  .side-foot > div:not(.sel):not(.bell-wrap) { display: none; }
   .signout { grid-column: 2; grid-row: 1; margin: 0; }
   .nav { grid-column: 1 / -1; grid-row: 2; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
   .nav::-webkit-scrollbar { display: none; }
@@ -121,6 +121,7 @@ img, iframe { max-width: 100%; }
     -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 var(--fl), #000 calc(100% - var(--fr)), transparent 100%);
     mask-image: linear-gradient(90deg, transparent 0, #000 var(--fl), #000 calc(100% - var(--fr)), transparent 100%); }
   .ws-select { grid-column: 1 / -1; grid-row: 3; margin: 0 !important; }
+  .bell-wrap { grid-column: 1 / -1; grid-row: 4; margin: 0 !important; }
   .main { padding: 20px 14px 48px; }
   h1 { font-size: 26px; }
   .card { padding: 16px; }
