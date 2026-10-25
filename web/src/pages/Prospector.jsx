@@ -84,7 +84,7 @@ export default function Prospector() {
           <strong>How this stays safe</strong>
           <ul style={{ margin: '6px 0 0 18px' }}>
             <li>It only reads pages the site shows to everyone, follows the site's robots.txt, and waits 2 to 3 seconds between pages.</li>
-            <li>It keeps business addresses on the company's own domain. Gmail, Yahoo and similar personal inboxes are not collected.</li>
+            <li>It keeps the addresses a business prints on its own site: its own domain, and Gmail, Yahoo and similar inboxes. Addresses of other companies on the page (web designers, hosts) are ignored.</li>
             <li>It skips EU addresses (judged from the address ending, so a .com business in the EU can slip through: check before you send).</li>
             <li>Anyone who unsubscribed, bounced, or is already a contact is never added again.</li>
             <li>Prospects live on their own list and never mix with people who signed up.</li>

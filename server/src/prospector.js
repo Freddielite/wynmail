@@ -57,8 +57,9 @@ export async function createJob(workspaceId, userId, sites) {
 // Decides what happens to one found address. Returns { status, note, contactId }.
 async function judge(workspace, email, siteHost, jobId, siteUrl, pageUrl, deps) {
   const domain = email.split('@')[1];
-  if (isFreemail(domain)) return { status: 'free_email', note: 'Personal inbox (Gmail, Yahoo and the like). Not collected.' };
-  if (registrableDomain(domain) !== registrableDomain(siteHost)) return null; // someone else's address on this site: ignore
+  // Gmail, Yahoo and other free inboxes are kept: many small businesses print one as their contact address.
+  // An address at some other company (a web designer, the hosting company) is not this business's: ignore it.
+  if (!isFreemail(domain) && registrableDomain(domain) !== registrableDomain(siteHost)) return null;
   if (isEuDomain(domain) || isEuDomain(siteHost)) return { status: 'eu', note: 'EU address. Not collected: the EU rules on cold email are strict.' };
   if (!isEmail(email)) return { status: 'invalid', note: 'Not a valid address' };
   const check = await assessEmail(email, { block_disposable: true, block_role: false, check_mx: true }, deps.assess);

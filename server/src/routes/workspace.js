@@ -35,6 +35,7 @@ import { cleanTz, earliestInstant, LOCAL_RE } from '../timeutil.js';
 import automationsAdmin from './automationsAdmin.js';
 import { SSO_ENABLED } from '../flags.js';
 import prospectorRoutes from './prospector.js';
+import mailboxRoutes from './mailboxes.js';
 import { audit, listAudit } from '../audit.js';
 import { archive, listDeleted, restore, kindOf, eraseNow } from '../archive.js';
 import { PERMISSIONS, permissionsOf, requiredPermission, cleanPermissions } from '../perms.js';
@@ -108,7 +109,7 @@ router.put('/', async (req, res) => {
       v.daily_limit = n;
     }
     if (f.provider !== undefined) {
-      if (!['resend', 'console'].includes(f.provider)) return bad(res, 'unknown provider');
+      if (!['resend', 'console', 'smtp'].includes(f.provider)) return bad(res, 'unknown provider');
       v.provider = f.provider;
     }
   }
@@ -695,6 +696,7 @@ router.use('/media', mediaAdmin);
 router.use('/analytics', analyticsRoutes);
 router.use('/automations', automationsAdmin);
 router.use('/prospector', prospectorRoutes);
+router.use('/mailboxes', mailboxRoutes);
 if (SSO_ENABLED) router.use('/', (await import('./ssoAdmin.js')).default); // SSO settings and SCIM tokens
 
 /* ---------- blocked addresses ---------- */

@@ -77,7 +77,7 @@ check('reads the home, contact and about pages and finds addresses', r.pages.len
 check('knows which page each address came from', r.emails.find((x) => x.email === 'sales@acme.ng')?.page === 'https://acme.ng/contact');
 check('stays on the site, skips images, blog posts and pages robots.txt disallows', !asked.some((a) => /other\.com|logo\.png|blog|\/admin\/contact/.test(a.url)));
 check('says who it is', asked.every((a) => /^WynmailFinder\/1\.0/.test(a.ua)));
-check('keeps the personal and third-party addresses in the result for the runner to judge', r.emails.some((x) => x.email === 'boss@gmail.com') && r.emails.some((x) => x.email === 'hi@webagency.io'));
+check('keeps free-mail and third-party addresses in the result for the runner to judge', r.emails.some((x) => x.email === 'boss@gmail.com') && r.emails.some((x) => x.email === 'hi@webagency.io'));
 check('blocked by robots.txt: not a single page is fetched', (asked.length = 0, r = await F.findEmails('blocked.ng', { ...deps.find }), r.blocked === true && asked.length === 1 && asked[0].url.endsWith('/robots.txt')));
 asked.length = 0; waits.length = 0;
 r = await F.findEmails('slow.ng', { ...deps.find });
@@ -112,8 +112,8 @@ await P.runNextJob(deps);
 const d1 = await P.jobDetail(ws.id, job.id);
 const by = (email) => d1.results.find((x) => x.email === email);
 check('the job finishes', d1.job.status === 'done' && d1.job.done_sites === 7, JSON.stringify(d1.job));
-check('good new business addresses are saved', ['hello@acme.ng', 'sales@acme.ng', 'support@acme.ng'].every((e) => by(e)?.status === 'saved' && by(e).still_saved));
-check('personal inboxes are not collected', by('boss@gmail.com')?.status === 'free_email');
+check('good new business addresses are saved', ['hello@acme.ng', 'sales@acme.ng', 'support@acme.ng', 'boss@gmail.com'].every((e) => by(e)?.status === 'saved' && by(e).still_saved));
+check('Gmail and other free inboxes printed on the site are collected too', by('boss@gmail.com')?.status === 'saved' && by('boss@gmail.com').still_saved);
 check('addresses of other companies on the page are ignored', !by('hi@webagency.io'));
 check('EU addresses are not collected', by('info@shop.de')?.status === 'eu');
 check('people already in your contacts are not added again', by('known@dup.ng')?.status === 'duplicate');
@@ -124,8 +124,8 @@ check('a dead site is marked failed, an empty one done with a note', d1.sites.fi
 const c = await one(`SELECT * FROM contacts WHERE email = 'sales@acme.ng'`);
 check('each saved contact records where it came from', c.consent_source === 'prospector' && c.source_url === 'https://acme.ng/contact' && !!c.source_found_at && c.consent_at === null && c.tags.includes('prospect'));
 const plist = await one(`SELECT * FROM lists WHERE workspace_id = $1 AND kind = 'prospects'`, [ws.id]);
-check('they sit on a list called Prospects', plist?.name === 'Prospects' && (await one(`SELECT count(*)::int AS n FROM list_contacts WHERE list_id = $1`, [plist.id])).n === 3);
-check('the counters add up', d1.job.saved === 3 && d1.job.found === d1.results.length);
+check('they sit on a list called Prospects', plist?.name === 'Prospects' && (await one(`SELECT count(*)::int AS n FROM list_contacts WHERE list_id = $1`, [plist.id])).n === 4);
+check('the counters add up', d1.job.saved === 4 && d1.job.found === d1.results.length);
 check('another workspace sees nothing', (await P.jobDetail(ws2.id, job.id)) === null);
 
 /* ---------- keeping prospects apart ---------- */

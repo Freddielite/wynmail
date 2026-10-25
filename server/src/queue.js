@@ -1,5 +1,7 @@
 import { assess, learn } from './spamrisk.js';
 import { notify } from './notify.js';
+import { capacity } from './mailboxes.js';
+import { suppress } from './suppress.js';
 import { many, one, query } from './db.js';
 import { getProvider } from './providers/index.js';
 import { buildEmail } from './render.js';
@@ -34,6 +36,10 @@ export async function enqueueDueCampaigns() {
 // force: a person looked at the risk report and chose to send anyway.
 export async function enqueueCampaign(campaignId, { force = false, userId = null } = {}) {
   const pre = await one(`SELECT c.id, c.subject, c.html, c.preview_text, c.workspace_id, c.resend_of FROM campaigns c WHERE c.id = $1 AND c.status IN ('draft','scheduled','needs_review')`, [campaignId]);
+  if (pre && !process.env.FORCE_PROVIDER) {
+    const w = await one(`SELECT provider FROM workspaces WHERE id = $1`, [pre.workspace_id]);
+    if (w.provider === 'smtp' && !(await capacity(pre.workspace_id)).boxes) throw new Error('Add and switch on at least one mailbox first (Settings > Mailboxes).');
+  }
   if (pre && !force && !pre.resend_of) {
     const workspace = await one(`SELECT * FROM workspaces WHERE id = $1`, [pre.workspace_id]);
     if (workspace.risk_hold_enabled) {
@@ -141,7 +147,10 @@ export async function drainOnce() {
     const dailyLeft = Math.max(0, lim.limit - (await sentToday(workspace.id)));
     // rate_per_minute is per minute, so scale it down to the size of one tick.
     const perTick = Math.max(1, Math.ceil(((workspace.rate_per_minute || 60) * TICK_MS) / 60000));
-    const batchSize = Math.min(perTick, dailyLeft);
+    let batchSize = Math.min(perTick, dailyLeft);
+    // Sending through the workspace's own mailboxes: each one has a daily cap, so only what they can still send goes out.
+    // The rest simply waits in the queue for tomorrow.
+    if (!process.env.FORCE_PROVIDER && workspace.provider === 'smtp') batchSize = Math.min(batchSize, (await capacity(workspace.id)).left);
     if (batchSize <= 0) continue;
 
     // Claim rows atomically so an overlapping tick or second instance never double-sends.
@@ -206,11 +215,24 @@ async function sendMessage(workspace, message) {
       ...built
     });
     await query(
-      `UPDATE messages SET status = 'sent', sent_at = now(), provider_id = $2, attempts = attempts + 1 WHERE id = $1`,
-      [message.id, result.id || null]
+      `UPDATE messages SET status = 'sent', sent_at = now(), provider_id = $2, mailbox_id = $3, attempts = attempts + 1 WHERE id = $1`,
+      [message.id, result.id || null, result.mailboxId || null]
     );
     await query(`INSERT INTO events (workspace_id, message_id, type) VALUES ($1, $2, 'sent')`, [workspace.id, message.id]);
   } catch (err) {
+    // Not this message's fault: no mailbox has room, or one was just switched off. Back in the queue, no attempt used.
+    if (err.kind === 'capacity' || err.kind === 'auth') {
+      await query(`UPDATE messages SET status = 'queued', claimed_at = NULL, error = $2 WHERE id = $1`, [message.id, String(err.message).slice(0, 300)]);
+      return;
+    }
+    // The recipient's own server said this address does not exist: same as a hard bounce.
+    if (err.kind === 'recipient') {
+      await query(`UPDATE messages SET status = 'failed', attempts = attempts + 1, mailbox_id = $2, bounced_at = now(), bounce_type = 'Permanent', error = $3 WHERE id = $1`,
+        [message.id, err.mailboxId || null, String(err.message).slice(0, 300)]);
+      await query(`INSERT INTO events (workspace_id, message_id, type, meta) VALUES ($1, $2, 'bounce', $3)`, [workspace.id, message.id, JSON.stringify({ type: 'Permanent' })]);
+      await suppress(workspace.id, contact.email, 'bounced');
+      return;
+    }
     const attempts = message.attempts + 1;
     await query(
       `UPDATE messages SET status = $2, attempts = $3, error = $4 WHERE id = $1`,

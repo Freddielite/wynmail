@@ -67,7 +67,7 @@ router.put('/workspaces/:id', async (req, res) => {
     v.daily_limit = n;
   }
   if (f.provider !== undefined) {
-    if (!['resend', 'console'].includes(f.provider)) return bad(res, 'unknown provider');
+    if (!['resend', 'console', 'smtp'].includes(f.provider)) return bad(res, 'unknown provider');
     v.provider = f.provider;
   }
   const row = await one(

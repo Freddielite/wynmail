@@ -53,3 +53,8 @@ Mail arrives at `SECURITY_CONTACT`. Acknowledge in 2 working days, fix, deploy, 
 ## Held or paused campaigns
 - Held (`needs_review`): open the campaign, read the reasons, fix it or send it anyway. Raise the threshold in Settings if it holds good email.
 - Paused: complaints or bounces spiked mid-send. Check the list source and the email, then Resume or leave it stopped.
+
+## A mailbox stopped sending
+- Settings > Sending mailboxes shows the problem. "The mailbox refused the username or password": the app password was revoked or changed. Create a new app password, edit the mailbox, switch it on. It switches itself off on a bad login so the provider does not lock the account.
+- Everything waiting is fine: the queue keeps it for tomorrow when the daily limits are reached.
+- Check the mailbox itself for bounce replies. Remove those addresses from Prospects.

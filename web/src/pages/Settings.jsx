@@ -4,6 +4,7 @@ import { Btn, CopyBtn, useGuard } from '../ui.jsx';
 import Warmup from './Warmup.jsx';
 import { TIMEZONES } from '../timezones.js';
 import Select from '../Select.jsx';
+import Mailboxes from './Mailboxes.jsx';
 
 export default function Settings({ admin }) {
   const guard = useGuard();
@@ -82,6 +83,7 @@ export default function Settings({ admin }) {
             <div className="field"><label>Provider</label>
               <Select value={form.provider} onChange={set('provider')} disabled={!admin}>
                 <option value="resend">Resend</option>
+                <option value="smtp">SMTP mailboxes (Zoho, Google Workspace)</option>
                 <option value="console">Console (dry run)</option>
               </Select>
             </div>
@@ -117,6 +119,8 @@ export default function Settings({ admin }) {
             </div>
             {saveBtn}
           </div>
+
+          <Mailboxes provider={form.provider} />
 
           <div className="card">
             <div className="between">

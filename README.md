@@ -249,10 +249,24 @@ Finds business emails printed on company websites and saves new ones to a **Pros
 
 - Paste websites or upload a CSV with a Website column. Up to 100 at a time, 300 a day per workspace.
 - Reads the home page plus contact, about and team pages. One request every 2 to 3 seconds, `robots.txt` obeyed (including Crawl-delay), sends a `WynmailFinder` user agent.
-- Keeps only addresses on the company's own domain. Personal inboxes (Gmail, Yahoo...) and EU addresses are not collected. Disposable and unreachable domains are refused.
+- Keeps addresses the business prints on its own site: its own domain, plus Gmail, Yahoo and other free inboxes. Addresses of other companies on the page are ignored. EU addresses are not collected. Disposable and unreachable domains are refused.
 - Never re-adds anyone already a contact, unsubscribed, bounced or marked as spam.
 - Each contact stores where it came from (`consent_source = prospector`, `source_url`, `source_found_at`). Prospects only live on the Prospects list and can never be put on other lists, and people who signed up can never be put on it.
 - Prospects do not start automations unless the automation allows imports.
 - Tests: `npm run test:prospector` (no network needed).
 
 Before sending to prospects you still need a way to send to strangers (Resend does not allow it) and a warmed-up sending domain. See the plan, parts 2 to 4.
+
+## Sending through your own mailboxes (SMTP)
+
+Resend does not allow email to strangers, so cold outreach goes through normal mailboxes (Zoho Mail, Google Workspace).
+
+- Settings > Sending mailboxes: add up to 10 mailboxes per workspace (server, port 465/587/2525, username, **app password**). The login is checked before saving. Passwords are encrypted and never shown again.
+- Each mailbox has its own daily limit (default 30, range 1 to 500). Sends rotate: the least recently used mailbox with room goes next.
+- The send queue only sends what the mailboxes can still send today. The rest waits in the queue (no failed attempts) and goes out the next day (UTC).
+- Choose it: a Wyntek admin sets the workspace's provider to "SMTP mailboxes". The sending address must be at the workspace's sending domain.
+- A wrong password switches that mailbox off at once, so repeated bad logins never lock your account. Fix the password, then switch it on.
+- If the recipient's server says the address does not exist, it is recorded as a hard bounce and the person is never emailed again.
+- Mail server addresses are checked: public servers only, standard mail ports only, certificate checked, TLS required.
+- **Limit:** with SMTP there is no delivery, bounce or spam-complaint feed (Resend provides those). Opens and clicks still work (Wynmail's own links). Late bounces arrive in the mailbox as replies: check the inbox, and remove those addresses. Reading them automatically is a later step.
+- Tests: `npm run test:smtp` (talks to a real local SMTP server over STARTTLS).

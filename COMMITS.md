@@ -114,3 +114,9 @@
 112. `feat(contacts): keep prospects and signed-up people on separate lists, and record where each prospect was found`
 113. `feat(web): add the Prospector page`
 114. `test(prospector): add finder, runner and API tests and run them in CI`
+115. `feat(smtp): add an SMTP provider with mailbox rotation, per-mailbox daily caps and pinned public server addresses`
+116. `feat(queue): size each batch by mailbox capacity so extra messages wait for tomorrow instead of failing`
+117. `feat(queue): record hard rejections from SMTP as bounces and switch a mailbox off after a bad login`
+118. `feat(web): add the Sending mailboxes card and the SMTP provider option to Settings`
+119. `test(smtp): add provider, queue and route tests against a real local SMTP server`
+120. `feat(prospector): collect Gmail, Yahoo and other free inboxes printed on a business site`

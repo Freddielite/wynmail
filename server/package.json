@@ -30,7 +30,8 @@
     "test:hardening": "node test/hardening.mjs",
     "test:features": "node test/features.mjs",
     "test:spamrisk": "node test/spamrisk.mjs",
-    "test:prospector": "node test/prospector.mjs"
+    "test:prospector": "node test/prospector.mjs",
+    "test:smtp": "node test/smtp.mjs"
   },
   "keywords": [],
   "author": "",
@@ -43,12 +44,14 @@
     "express": "^5.2.1",
     "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.3",
+    "nodemailer": "^10.2.1",
     "pg": "^8.23.0",
     "resend": "^6.28.1",
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "^0.5.8"
+    "@electric-sql/pglite": "^0.5.8",
+    "smtp-server": "^3.21.1"
   },
   "type": "module",
   "engines": {

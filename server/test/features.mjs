@@ -7,6 +7,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { SignedXml } from 'xml-crypto';
+import { SMTPServer } from 'smtp-server';
 import { codeFor, stepAt } from '../src/totp.js';
 
 const BASE = process.env.BASE || 'http://localhost:4000';
@@ -229,6 +230,37 @@ check('a normal email is not held', (await call('POST', w(`/campaigns/${clean.id
 check('only the owner can loosen the guard', (await call('PUT', w(''), { token: M, body: { risk_hold_enabled: false } })).status === 403);
 check('the owner can set the threshold', (await call('PUT', w(''), { token: O, body: { risk_threshold: 90 } })).data.risk_threshold === 90);
 check('a threshold outside 10 to 100 is refused', (await call('PUT', w(''), { token: O, body: { risk_threshold: 5 } })).status === 400);
+
+/* ---------- mailboxes (SMTP) ---------- */
+const smtpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'smtpcert-'));
+execSync(`openssl req -x509 -newkey rsa:2048 -nodes -keyout ${smtpDir}/k.pem -out ${smtpDir}/c.pem -days 2 -subj "/CN=localhost" 2>/dev/null`);
+const smtpInbox = [];
+const smtp = new SMTPServer({ key: fs.readFileSync(`${smtpDir}/k.pem`), cert: fs.readFileSync(`${smtpDir}/c.pem`),
+  onAuth(a, sess, cb) { return a.password === 'app-pass' ? cb(null, { user: a.username }) : cb(Object.assign(new Error('bad'), { responseCode: 535 })); },
+  onData(stream, sess, cb) { let raw = ''; stream.on('data', (c) => { raw += c; }); stream.on('end', () => { smtpInbox.push(raw); cb(); }); } });
+await new Promise((r) => smtp.listen(0, '127.0.0.1', r));
+const smtpPort = smtp.server.address().port;
+const mb = { host: '127.0.0.1', port: smtpPort, username: 'hello@acme.ng', password: 'app-pass' };
+check('mailboxes are owner only by default', (await call('GET', w('/mailboxes'), { token: M })).status === 403 && (await call('GET', w('/mailboxes'), { token: VW })).status === 403);
+check('the owner sees an empty list and the limits', (await call('GET', w('/mailboxes'), { token: O })).data.default_cap === 30);
+check('a wrong password is refused with a hint', (await call('POST', w('/mailboxes'), { token: O, body: { ...mb, password: 'nope' } })).data.kind === 'auth');
+check('a sending address outside your domain is refused', (await call('POST', w('/mailboxes'), { token: O, body: { ...mb, from_email: 'ceo@other.com' } })).status === 400);
+check('a daily limit outside 1 to 500 is refused', (await call('POST', w('/mailboxes'), { token: O, body: { ...mb, daily_cap: 0 } })).status === 400 && (await call('POST', w('/mailboxes'), { token: O, body: { ...mb, daily_cap: 501 } })).status === 400);
+check('a bad server name is refused', (await call('POST', w('/mailboxes'), { token: O, body: { ...mb, host: 'not a host' } })).status === 400);
+const box = await call('POST', w('/mailboxes'), { token: O, body: { ...mb, label: 'Main' } });
+check('a working mailbox is added, with the default limit of 30', box.status === 200 && box.data.daily_cap === 30 && box.data.from_email === 'hello@acme.ng' && !JSON.stringify(box.data).includes('app-pass'), JSON.stringify(box.data));
+check('the same mailbox cannot be added twice', (await call('POST', w('/mailboxes'), { token: O, body: mb })).status === 409);
+check('the limit can be changed', (await call('PUT', w(`/mailboxes/${box.data.id}`), { token: O, body: { daily_cap: 25 } })).data.daily_cap === 25);
+check('a new password is checked before it replaces the old one', (await call('PUT', w(`/mailboxes/${box.data.id}`), { token: O, body: { password: 'typo' } })).status === 400);
+const tst = await call('POST', w(`/mailboxes/${box.data.id}/test`), { token: O });
+check('the test button sends to your own address through that mailbox', tst.status === 200 && tst.data.sent_to === 'o@acme.ng' && smtpInbox.length === 1 && /^To: .*o@acme\.ng/im.test(smtpInbox[0]), JSON.stringify(tst.data));
+check('and it counts towards the daily limit', (await call('GET', w('/mailboxes'), { token: O })).data.mailboxes[0].sent_today === 1);
+check('workspace mailbox settings are in the activity log, without the password', JSON.stringify((await call('GET', w('/audit'), { token: O })).data.filter((r) => r.action.startsWith('mailbox.'))).includes('mailbox.created') && !JSON.stringify((await call('GET', w('/audit'), { token: O })).data).includes('app-pass'));
+check('the owner cannot switch the provider themselves', (await call('PUT', w(''), { token: O, body: { provider: 'smtp' } })).data.provider !== 'smtp');
+check('Wyntek can choose SMTP for a workspace', (await call('PUT', w(''), { token: A, body: { provider: 'smtp' } })).data.provider === 'smtp');
+await call('PUT', w(''), { token: A, body: { provider: 'resend' } });
+check('a mailbox can be removed', (await call('DELETE', w(`/mailboxes/${box.data.id}`), { token: O })).status === 200 && (await call('GET', w('/mailboxes'), { token: O })).data.mailboxes.length === 0);
+smtp.close();
 
 /* ---------- prospector API ---------- */
 check('prospector is off for ordinary members by default', (await call('GET', w('/prospector/jobs'), { token: M })).status === 403);

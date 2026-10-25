@@ -1,0 +1,2 @@
+ALTER TABLE messages DROP COLUMN IF EXISTS mailbox_id;
+DROP TABLE IF EXISTS mailboxes;
