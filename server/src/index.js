@@ -16,6 +16,7 @@ import { publicMedia } from './routes/media.js';
 import { startWorker } from './queue.js';
 import { SSO_ENABLED } from './flags.js';
 import { startProspector } from './prospector.js';
+import { startReplyWatcher } from './replies.js';
 
 const app = express();
 app.set('trust proxy', 1);
@@ -101,6 +102,7 @@ hk.unref();
 
 const worker = process.env.RUN_WORKER !== '0' ? startWorker() : null;
 const prospector = process.env.RUN_WORKER !== '0' && process.env.RUN_PROSPECTOR !== '0' ? startProspector() : null;
+const replyWatcher = process.env.RUN_WORKER !== '0' && process.env.RUN_REPLIES !== '0' ? startReplyWatcher() : null;
 const server = app.listen(port, () => console.log(JSON.stringify({ level: 'info', msg: 'listening', port })));
 
 // Render sends SIGTERM on every deploy. Stop taking new work, let in-flight requests finish, then exit,
@@ -112,6 +114,7 @@ const shutdown = (signal) => {
   console.log(JSON.stringify({ level: 'info', msg: 'shutting down', signal }));
   if (worker) clearInterval(worker);
   if (prospector) clearInterval(prospector);
+  if (replyWatcher) clearInterval(replyWatcher);
   clearInterval(hk);
   server.close(async () => { await closeDb().catch(() => {}); process.exit(0); });
   setTimeout(() => process.exit(1), 25000).unref();

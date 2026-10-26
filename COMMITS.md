@@ -127,3 +127,10 @@
 125. `feat(prospector): save company, phone, type and city on each contact so emails can use merge tags like company`
 126. `feat(web): add Find businesses, addresses-per-company choice, richer results and CSV download to the Prospector page`
 127. `test(prospector): cover discovery, structured data, sitemap, scoring, per-company limits and the new API`
+128. `feat(replies): read replies, removal requests, out-of-office notes and bounce notices from each sending mailbox over IMAP`
+129. `feat(replies): stop a prospect's sequence and waiting emails the moment they reply, ask to be removed or bounce`
+130. `feat(outreach): add started-by-me sequences with a replied goal and check, a starter sequence, and batch start from the Prospector`
+131. `feat(queue): enforce no emails after a reply, a limit of 3 per prospect and a 48 hour gap at send time`
+132. `feat(web): add the Replies page, the Outreach card, reply status on mailboxes and the new automation options`
+133. `test(replies): cover message classification, matching, polling, the send rules and sequence starting`
+134. `fix(prospector): try four public map servers and say exactly why a business search failed (busy, too big, no connection)`

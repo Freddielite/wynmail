@@ -102,6 +102,9 @@ Checked against the "what a vibe-coded app still needs" list. Status: **DONE** a
 | Admin panel, support tooling | PARTIAL | Clients page; activity log API is there, no UI yet. |
 | Accounts in the company's name, bus factor | ORG | Check GitHub, Render, Vercel, Supabase, Resend, domain registrar are all under Wyntek. |
 
+## Replies and outreach rules
+IMAP access uses the mailbox's own app password, read-only, over TLS with the certificate checked, to a public server only (same address pinning as SMTP). Messages are fetched capped at 250 KB, parsed once, and stored only as a 300-character snippet plus sender, subject and date. The 3-email cap, the 48-hour gap and the stop-on-reply rule live in the send path (`queue.js`), not in the screens, so nothing that queues mail to a prospect can skip them. A removal request in a reply is honoured automatically.
+
 ## Prospector upgrades
 Business search uses OpenStreetMap's public Overpass servers: typed text is validated (letters only, fixed lists for type and country) before it goes in a query, requests identify Wynmail, are capped in size and time, and are limited per workspace per day. Nothing is scraped from Google or social networks. Address guessing is not offered on purpose.
 

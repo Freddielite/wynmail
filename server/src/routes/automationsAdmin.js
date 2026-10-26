@@ -12,9 +12,9 @@ const MAX_ALL_STEPS = 20;    // emails, conditions and tag steps together
 const MAX_DELAY = 60 * 24 * 365; // one year, in minutes
 const MAX_HTML = 500000;
 
-const TRIGGERS = ['list_join', 'tag_added', 'link_click', 'date_field'];
-const GOALS = ['tag', 'list', 'link'];
-const COND_TYPES = ['opened', 'clicked', 'clicked_link', 'has_tag', 'on_list', 'attr_equals'];
+const TRIGGERS = ['list_join', 'tag_added', 'link_click', 'date_field', 'manual'];
+const GOALS = ['tag', 'list', 'link', 'replied'];
+const COND_TYPES = ['opened', 'clicked', 'clicked_link', 'has_tag', 'on_list', 'attr_equals', 'replied'];
 const KEY_RE = /^\w{1,40}$/;
 const one1 = (t) => cleanTags([t])[0] || '';
 
@@ -40,6 +40,7 @@ function readTrigger(b) {
 function readGoal(b) {
   const type = GOALS.includes(b.goal_type) ? b.goal_type : null;
   if (!type) return { value: { type: null, value: null } };
+  if (type === 'replied') return { value: { type, value: '1' } };
   if (type === 'tag') { const v = one1(b.goal_value); return v ? { value: { type, value: v } } : { error: 'Type the tag that ends the automation' }; }
   if (type === 'list') { const v = Number(b.goal_value); return Number.isInteger(v) && v > 0 ? { value: { type, value: String(v) } } : { error: 'Choose the list that ends the automation' }; }
   const v = cleanText(b.goal_value, 200);
@@ -54,6 +55,7 @@ function readCond(c, i, steps) {
     if (!Number.isInteger(v) || v < 0 || v >= i || steps[v]?.kind !== 'email') return { error: `Step ${i + 1}: choose an earlier email to check` };
     return { value: { type: c.type, value: v } };
   }
+  if (c.type === 'replied') return { value: { type: 'replied', value: null } };
   if (c.type === 'clicked_link') { const v = cleanText(c.value, 200); return v.length >= 3 ? { value: { type: c.type, value: v } } : { error: `Step ${i + 1}: type part of the link to look for` }; }
   if (c.type === 'has_tag') { const v = one1(c.value); return v ? { value: { type: c.type, value: v } } : { error: `Step ${i + 1}: type the tag to look for` }; }
   if (c.type === 'on_list') { const v = Number(c.value); return Number.isInteger(v) && v > 0 ? { value: { type: c.type, value: v } } : { error: `Step ${i + 1}: choose a list` }; }

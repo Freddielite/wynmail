@@ -1,0 +1,10 @@
+DROP INDEX IF EXISTS idx_messages_provider_id;
+DROP TABLE IF EXISTS replies;
+ALTER TABLE messages DROP COLUMN IF EXISTS replied_at;
+ALTER TABLE contacts DROP COLUMN IF EXISTS replied_at;
+ALTER TABLE mailboxes DROP COLUMN IF EXISTS imap_error;
+ALTER TABLE mailboxes DROP COLUMN IF EXISTS imap_checked_at;
+ALTER TABLE mailboxes DROP COLUMN IF EXISTS imap_last_uid;
+ALTER TABLE mailboxes DROP COLUMN IF EXISTS imap_uidvalidity;
+ALTER TABLE mailboxes DROP COLUMN IF EXISTS watch_replies;
+ALTER TABLE mailboxes DROP COLUMN IF EXISTS imap_host;

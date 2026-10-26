@@ -18,6 +18,9 @@ const MAX_ATTEMPTS = 3;
 const TICK_MS = Number(process.env.QUEUE_TICK_MS || 5000);
 let running = false;
 
+export const MAX_COLD_EMAILS = Number(process.env.PROSPECT_MAX_EMAILS || 3);
+export const MIN_GAP_HOURS = Number(process.env.PROSPECT_MIN_GAP_HOURS ?? 48);
+
 // Thrown when a campaign looks too risky and is held for a person to decide. Not a failure.
 export class RiskHold extends Error {
   constructor(result) { super('held for review'); this.result = result; }
@@ -184,6 +187,24 @@ async function sendMessage(workspace, message) {
   if (!contact || !campaign || contact.status !== 'subscribed') {
     await query(`UPDATE messages SET status = 'skipped' WHERE id = $1`, [message.id]);
     return;
+  }
+  // Cold outreach rules, applied to everything that goes to a prospect (campaigns and sequences alike):
+  // never after they replied, never more than MAX_COLD emails in total, and never two emails closer than MIN_GAP_HOURS.
+  if (contact.consent_source === 'prospector') {
+    if (contact.replied_at) {
+      await query(`UPDATE messages SET status = 'skipped', error = 'Stopped: they replied' WHERE id = $1`, [message.id]);
+      return;
+    }
+    const prior = await one(`SELECT count(*)::int AS n, max(sent_at) AS last FROM messages WHERE contact_id = $1 AND status = 'sent'`, [contact.id]);
+    if (prior.n >= MAX_COLD_EMAILS) {
+      await query(`UPDATE messages SET status = 'skipped', error = $2 WHERE id = $1`, [message.id, `Limit: at most ${MAX_COLD_EMAILS} emails to a prospect`]);
+      return;
+    }
+    const wait = prior.last ? new Date(prior.last).getTime() + MIN_GAP_HOURS * 3600000 - Date.now() : 0;
+    if (wait > 0) {
+      await query(`UPDATE messages SET status = 'queued', claimed_at = NULL, send_after = now() + interval '1 millisecond' * $2 WHERE id = $1`, [message.id, Math.ceil(wait)]);
+      return;
+    }
   }
   // Preferences set on the preference page: a pause, or a cap on emails per week.
   if (contact.paused_until && new Date(contact.paused_until) > new Date()) {

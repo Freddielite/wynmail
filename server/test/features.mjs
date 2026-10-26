@@ -259,6 +259,10 @@ check('workspace mailbox settings are in the activity log, without the password'
 check('the owner cannot switch the provider themselves', (await call('PUT', w(''), { token: O, body: { provider: 'smtp' } })).data.provider !== 'smtp');
 check('Wyntek can choose SMTP for a workspace', (await call('PUT', w(''), { token: A, body: { provider: 'smtp' } })).data.provider === 'smtp');
 await call('PUT', w(''), { token: A, body: { provider: 'resend' } });
+check('a mailbox starts with no incoming server when it cannot be worked out', box.data.imap_host === null && box.data.watch_replies === true);
+check('checking replies needs the incoming mail server first', (await call('POST', w(`/mailboxes/${box.data.id}/check-replies`), { token: O })).status === 400);
+check('a bad incoming server name is refused', (await call('PUT', w(`/mailboxes/${box.data.id}`), { token: O, body: { imap_host: 'not a host' } })).status === 400);
+check('the incoming server can be set and reply reading switched off', (await call('PUT', w(`/mailboxes/${box.data.id}`), { token: O, body: { imap_host: 'imap.zoho.com', watch_replies: false } })).data.imap_host === 'imap.zoho.com');
 check('a mailbox can be removed', (await call('DELETE', w(`/mailboxes/${box.data.id}`), { token: O })).status === 200 && (await call('GET', w('/mailboxes'), { token: O })).data.mailboxes.length === 0);
 smtp.close();
 
@@ -292,6 +296,21 @@ check('a search can start from the businesses found, keeping their details, igno
 const wd = await call('GET', w(`/prospector/jobs/${withBiz.data.job.id}`), { token: O });
 check('the sites carry the business name, phone and city', wd.data.sites.some((x) => x.company === 'Test Kitchen One' && x.phone === '+234 800 000 0001'), JSON.stringify(wd.data.sites).slice(0, 200));
 await call('POST', w(`/prospector/jobs/${withBiz.data.job.id}/cancel`), { token: O });
+
+/* ---------- outreach and replies API ---------- */
+check('replies are for people with the prospector permission', (await call('GET', w('/replies'), { token: VW })).status === 403 && (await call('GET', w('/replies'), { token: O })).data.needs_attention === 0);
+check('the outreach page data is empty to begin with', (await call('GET', w('/prospector/outreach'), { token: O })).data.sequences.length === 0);
+const starter = await call('POST', w('/prospector/outreach/starter'), { token: O });
+check('a starter sequence is created, paused, for you to rewrite', starter.status === 200 && starter.data.status === 'paused' && starter.data.trigger_type === 'manual');
+const seq = (await call('GET', w('/prospector/outreach'), { token: O })).data.sequences[0];
+check('it says it still needs editing and has 3 emails', seq.needs_editing === true && seq.emails === 3);
+check('it cannot be started before it is written and switched on', (await call('POST', w('/prospector/outreach/start'), { token: O, body: { automation_id: seq.id, count: 5 } })).status === 400);
+const full = (await call('GET', w(`/automations/${seq.id}`), { token: O })).data;
+check('it is a normal automation you can open and edit', full.steps.length === 3 && full.goal_type === 'replied');
+const mk = (steps, extra = {}) => call('POST', w('/automations'), { token: O, body: { name: 'Seq 2', trigger_type: 'manual', goal_type: 'replied', steps, ...extra } });
+const okSeq = await mk([{ kind: 'email', delay_minutes: 0, subject: 'Hi', html: '<p>Hi</p>' }, { kind: 'condition', delay_minutes: 4320, cond: { type: 'replied' }, yes_to: -1 }, { kind: 'email', delay_minutes: 0, subject: 'Again', html: '<p>Again</p>' }]);
+check('a started-by-me sequence can have a "replied" goal and check', okSeq.status === 200 && okSeq.data.trigger_type === 'manual' && okSeq.data.goal_type === 'replied', JSON.stringify(okSeq.data));
+check('members without the prospector permission cannot start outreach', (await call('POST', w('/prospector/outreach/start'), { token: VW, body: { automation_id: seq.id, count: 1 } })).status === 403);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

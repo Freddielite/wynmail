@@ -16,7 +16,7 @@ export async function enroll(workspaceId, contactId, listIds, source = 'manual')
      SELECT a.id, c.id, 0, now() + interval '1 millisecond' * (s.delay_minutes * $5::int)
      FROM automations a
      JOIN contacts c ON c.id = $2 AND c.workspace_id = $1 AND c.status = 'subscribed'
-     ${FIRST_STEP}
+     JOIN automation_steps s ON s.automation_id = a.id AND s.position = 0
      WHERE a.workspace_id = $1 AND a.status = 'active' AND a.trigger_type = 'list_join' AND a.list_id = ANY($3::int[])
        AND ($4::boolean OR a.include_imports)
      ON CONFLICT DO NOTHING`,
@@ -33,7 +33,7 @@ export async function enrollTags(workspaceId, contactId, tags, source = 'manual'
      SELECT a.id, c.id, 0, now() + interval '1 millisecond' * (s.delay_minutes * $4::int)
      FROM automations a
      JOIN contacts c ON c.id = $2 AND c.workspace_id = $1 AND c.status = 'subscribed'
-     ${FIRST_STEP}
+     JOIN automation_steps s ON s.automation_id = a.id AND s.position = 0
      WHERE a.workspace_id = $1 AND a.status = 'active' AND a.trigger_type = 'tag_added' AND lower(a.trigger_value) = ANY($3::text[])
        AND ($5::boolean OR a.include_imports)
      ON CONFLICT DO NOTHING`,
@@ -52,7 +52,7 @@ export async function enrollClick(workspaceId, contactId, url) {
      SELECT a.id, c.id, 0, now() + interval '1 millisecond' * (s.delay_minutes * $4::int)
      FROM automations a
      JOIN contacts c ON c.id = $2 AND c.workspace_id = $1 AND c.status = 'subscribed'
-     ${FIRST_STEP}
+     JOIN automation_steps s ON s.automation_id = a.id AND s.position = 0
      WHERE a.id = ANY($3::int[])
      ON CONFLICT DO NOTHING`,
     [workspaceId, contactId, hit, MINUTE_MS]
@@ -104,6 +104,7 @@ export async function scanDateTriggers(now = new Date()) {
 
 // Has this person reached the goal that ends the sequence?
 async function goalReached(a, run) {
+  if (a.goal_type === 'replied') return !!(await one(`SELECT 1 FROM contacts WHERE id = $1 AND replied_at IS NOT NULL AND replied_at >= $2`, [run.contact_id, run.created_at]));
   if (!a.goal_type || !a.goal_value) return false;
   if (a.goal_type === 'tag') return !!(await one(`SELECT 1 FROM contacts WHERE id = $1 AND $2 = ANY(tags)`, [run.contact_id, String(a.goal_value).toLowerCase()]));
   if (a.goal_type === 'list') return !!(await one(`SELECT 1 FROM list_contacts WHERE contact_id = $1 AND list_id = $2::int`, [run.contact_id, a.goal_value]));
@@ -133,6 +134,8 @@ export async function evalCond(cond, run) {
       return !!(await one(
         `SELECT 1 FROM events e JOIN messages m ON m.id = e.message_id
          WHERE m.run_id = $1 AND e.type = 'click' AND position(lower($2) in lower(e.url)) > 0 LIMIT 1`, [run.id, String(v || '')]));
+    case 'replied':
+      return !!(await one(`SELECT 1 FROM contacts WHERE id = $1 AND replied_at IS NOT NULL AND replied_at >= $2`, [run.contact_id, run.created_at]));
     case 'has_tag':
       return !!(await one(`SELECT 1 FROM contacts WHERE id = $1 AND $2 = ANY(tags)`, [run.contact_id, String(v || '').toLowerCase()]));
     case 'on_list':
@@ -183,10 +186,15 @@ export async function processDueRuns() {
     if (!run) continue;
 
     const info = await one(
-      `SELECT a.*, c.status AS contact_status FROM automations a, contacts c WHERE a.id = $1 AND c.id = $2`,
+      `SELECT a.*, c.status AS contact_status, c.replied_at, c.consent_source FROM automations a, contacts c WHERE a.id = $1 AND c.id = $2`,
       [run.automation_id, run.contact_id]);
     if (!info || info.contact_status !== 'subscribed') {
       await query(`UPDATE automation_runs SET status = 'cancelled', next_at = NULL, ended_reason = 'left' WHERE id = $1`, [run.id]);
+      continue;
+    }
+    // A prospect who answered is in a conversation now: no more automatic emails, whatever the sequence says.
+    if (info.consent_source === 'prospector' && info.replied_at) {
+      await query(`UPDATE automation_runs SET status = 'cancelled', next_at = NULL, ended_reason = 'replied' WHERE id = $1`, [run.id]);
       continue;
     }
     // Someone who already did what the sequence was for gets nothing more.
@@ -222,4 +230,24 @@ export async function processDueRuns() {
       [info.workspace_id, run.contact_id, run.automation_id, step.id, run.id]);
     await afterStep(run, step);
   }
+}
+
+// "Started by me" sequences (cold outreach): enrolls up to `count` prospects who have not been emailed yet, named people first.
+// Only people on the Prospects list who are still subscribed, have not replied and are not already in a sequence.
+export async function startManual(workspaceId, automationId, count) {
+  const rows = await many(
+    `INSERT INTO automation_runs (automation_id, contact_id, current_step, next_at)
+     SELECT a.id, c.id, 0, now() + interval '1 millisecond' * (s.delay_minutes * $4::int)
+     FROM contacts c
+     JOIN automations a ON a.id = $2 AND a.workspace_id = $1 AND a.status = 'active' AND a.trigger_type = 'manual'
+     JOIN automation_steps s ON s.automation_id = a.id AND s.position = 0
+     WHERE c.workspace_id = $1 AND c.consent_source = 'prospector' AND c.status = 'subscribed' AND c.replied_at IS NULL
+       AND EXISTS (SELECT 1 FROM list_contacts lc JOIN lists l ON l.id = lc.list_id WHERE lc.contact_id = c.id AND l.kind = 'prospects')
+       AND NOT EXISTS (SELECT 1 FROM automation_runs r WHERE r.contact_id = c.id AND r.status = 'active')
+       AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.contact_id = c.id AND m.status IN ('sent', 'queued', 'sending'))
+     ORDER BY ('person' = ANY(c.tags)) DESC, c.id
+     LIMIT $3
+     ON CONFLICT DO NOTHING RETURNING contact_id`,
+    [workspaceId, automationId, count, MINUTE_MS]);
+  return rows.length;
 }

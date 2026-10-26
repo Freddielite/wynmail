@@ -4,12 +4,12 @@ import { Btn, useGuard, when } from '../ui.jsx';
 import Select from '../Select.jsx';
 
 const PRESETS = {
-  zoho: { label: 'Zoho Mail', host: 'smtp.zoho.com', port: 465 },
-  zoho_eu: { label: 'Zoho Mail (EU account)', host: 'smtp.zoho.eu', port: 465 },
-  google: { label: 'Google Workspace', host: 'smtp.gmail.com', port: 465 },
-  other: { label: 'Other mail server', host: '', port: 465 }
+  zoho: { label: 'Zoho Mail', host: 'smtp.zoho.com', port: 465, imap: 'imap.zoho.com' },
+  zoho_eu: { label: 'Zoho Mail (EU account)', host: 'smtp.zoho.eu', port: 465, imap: 'imap.zoho.eu' },
+  google: { label: 'Google Workspace', host: 'smtp.gmail.com', port: 465, imap: 'imap.gmail.com' },
+  other: { label: 'Other mail server', host: '', port: 465, imap: '' }
 };
-const EMPTY = { preset: 'zoho', host: 'smtp.zoho.com', port: 465, username: '', password: '', from_email: '', daily_cap: 30, label: '' };
+const EMPTY = { preset: 'zoho', host: 'smtp.zoho.com', imap_host: 'imap.zoho.com', port: 465, username: '', password: '', from_email: '', daily_cap: 30, label: '' };
 
 // The normal mailboxes (Zoho Mail, Google Workspace...) this workspace sends through, each with its own daily limit.
 export default function Mailboxes({ provider }) {
@@ -27,15 +27,19 @@ export default function Mailboxes({ provider }) {
   if (denied || !data) return null;
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
-  const pick = (e) => { const p = PRESETS[e.target.value]; setForm({ ...form, preset: e.target.value, host: p.host, port: p.port }); };
+  const pick = (e) => { const p = PRESETS[e.target.value]; setForm({ ...form, preset: e.target.value, host: p.host, port: p.port, imap_host: p.imap }); };
 
   const add = guard(async () => {
-    await api.addMailbox({ label: form.label, host: form.host, port: Number(form.port), username: form.username, password: form.password, from_email: form.from_email || form.username, daily_cap: Number(form.daily_cap) });
+    await api.addMailbox({ label: form.label, host: form.host, port: Number(form.port), username: form.username, password: form.password, from_email: form.from_email || form.username, daily_cap: Number(form.daily_cap), ...(form.imap_host ? { imap_host: form.imap_host } : {}) });
     setForm(EMPTY); setAdding(false); await load();
     return 'Mailbox connected';
   });
   const toggle = (b) => guard(async () => { await api.updateMailbox(b.id, { enabled: !b.enabled }); await load(); });
   const saveCap = (b) => guard(async () => { await api.updateMailbox(b.id, { daily_cap: Number(edit[b.id]) }); setEdit({ ...edit, [b.id]: undefined }); await load(); return 'Limit saved'; });
+  const check = (b) => guard(async () => {
+    const r = await api.checkReplies(b.id); await load();
+    return r.reply || r.unsubscribe || r.bounce ? `Found ${r.reply} replies, ${r.unsubscribe} removal requests, ${r.bounce} bounces` : `Checked ${r.checked} new emails. Nothing from prospects.`;
+  });
   const test = (b) => guard(async () => { const r = await api.testMailbox(b.id); await load(); return `Test sent to ${r.sent_to}. Check that inbox.`; });
   const remove = (b) => guard(async () => { if (!window.confirm(`Remove ${b.from_email}?`)) return; await api.deleteMailbox(b.id); await load(); return 'Removed'; });
 
@@ -71,9 +75,13 @@ export default function Mailboxes({ provider }) {
                   <td data-label="Status">
                     <span className={`pill ${!b.enabled ? 'gray' : b.last_error ? 'amber' : 'green'}`}>{!b.enabled ? 'Off' : b.last_error ? 'Problem' : 'On'}</span>
                     {b.last_error && <div className="muted" style={{ fontSize: 12 }}>{b.last_error}{b.last_error_at ? ` (${when(b.last_error_at)})` : ''}</div>}
+                    <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                      {!b.watch_replies ? 'Not reading replies' : !b.imap_host ? 'Replies: add the incoming server to read them' : b.imap_error ? <span style={{ color: '#b45309' }}>{b.imap_error}</span> : b.imap_checked_at ? `Reading replies. Last checked ${when(b.imap_checked_at)}` : 'Reading replies soon'}
+                    </div>
                   </td>
                   <td className="actions">
                     <Btn className="btn ghost sm" busyText="Sending..." onClick={test(b)}>Send me a test</Btn>{' '}
+                    {b.imap_host && <><Btn className="btn ghost sm" busyText="Checking..." onClick={check(b)}>Check replies</Btn>{' '}</>}
                     <Btn className="btn ghost sm" busyText="..." onClick={toggle(b)}>{b.enabled ? 'Switch off' : 'Switch on'}</Btn>{' '}
                     <Btn className="btn danger sm" busyText="Removing..." onClick={remove(b)}>Remove</Btn>
                   </td>
@@ -99,6 +107,9 @@ export default function Mailboxes({ provider }) {
           <div className="field"><label>App password</label><input type="password" autoComplete="new-password" value={form.password} onChange={set('password')} /></div>
           <div className="row">
             <div className="field" style={{ flex: 2 }}><label>Send as (optional)</label><input value={form.from_email} onChange={set('from_email')} placeholder="Same as the username" /></div>
+            <div className="field" style={{ flex: 2 }}><label>Incoming server (to read replies)</label><input value={form.imap_host} onChange={set('imap_host')} placeholder="imap.example.com" /></div>
+          </div>
+          <div className="row">
             <div className="field" style={{ flex: 1 }}><label>Daily limit</label><input type="number" min="1" max={data.max_cap} value={form.daily_cap} onChange={set('daily_cap')} /></div>
           </div>
           <p className="muted" style={{ marginBottom: 10 }}>Start at {data.default_cap} a day and raise it slowly. The sending address must be at your sending domain.</p>

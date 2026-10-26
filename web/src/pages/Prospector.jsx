@@ -25,11 +25,15 @@ export default function Prospector() {
   const [find, setFind] = useState({ category: 'restaurants', city: '', country: 'NG' });
   const [found, setFound] = useState(null); // businesses from the map search
   const [perCompany, setPerCompany] = useState('2');
+  const [out, setOut] = useState(null); // outreach: sequences and where prospects stand
+  const [seqId, setSeqId] = useState('');
+  const [batch, setBatch] = useState('30');
 
   const load = async () => {
     try {
-      const [i, j] = await Promise.all([api.prospectorInfo(), api.prospectorJobs()]);
-      setInfo(i); setJobs(j);
+      const [i, j, o] = await Promise.all([api.prospectorInfo(), api.prospectorJobs(), api.outreach()]);
+      setInfo(i); setJobs(j); setOut(o);
+      setSeqId((cur) => cur || String(o.sequences.find((q) => q.status === 'active' && !q.needs_editing)?.id || o.sequences[0]?.id || ''));
       const target = open?.job.id ?? j[0]?.id;
       if (target) setOpen(await api.prospectorJob(target));
     } catch (err) { if (/permission/i.test(err.message)) setDenied(true); else throw err; }
@@ -70,6 +74,12 @@ export default function Prospector() {
     setRejected(r.rejected || []); setText(''); setCsv(''); setFileName('');
     setOpen(await api.prospectorJob(r.job.id)); setJobs(await api.prospectorJobs());
     return `Searching ${r.job.total_sites} websites`;
+  });
+  const makeStarter = guard(async () => { await api.outreachStarter(); await load(); return 'Sequence created. Edit it in Automations, then switch it on.'; });
+  const startOut = guard(async () => {
+    const r = await api.outreachStart({ automation_id: Number(seqId), count: Number(batch) });
+    await load();
+    return r.started ? `Started for ${r.started} prospects` : 'Nobody new to start: everyone is already emailed, replied or removed.';
   });
   const stop = guard(async () => { await api.prospectorCancel(open.job.id); await load(); return 'Stopped'; });
   const pick = guard(async (id) => { setOpen(await api.prospectorJob(id)); });
@@ -166,6 +176,41 @@ export default function Prospector() {
             <li>Every email you send must include a clear opt-out line and your business address.</li>
           </ul>
         </div>
+      </div>
+
+      <div className="card" style={{ marginBottom: 20 }}>
+        <h3>Outreach</h3>
+        <p className="muted" style={{ margin: '4px 0 10px' }}>Start a short email sequence for the prospects you have not emailed yet. It stops by itself when someone replies, asks to be removed or bounces. Nobody gets more than 3 emails, and never two within 2 days.</p>
+        {out && (
+          <div className="row" style={{ gap: 8, marginBottom: 12 }}>
+            {[['Prospects', out.stats.total], ['Not emailed yet', out.stats.not_contacted], ['In a sequence', out.stats.in_sequence], ['Replied', out.stats.replied], ['No answer after 3', out.stats.no_answer], ['Bounced', out.stats.bounced], ['Removed', out.stats.removed]].map(([label, n]) => (
+              <div key={label} className="stat" style={{ minWidth: 110, padding: 12 }}><div className="n" style={{ fontSize: 22 }}>{n}</div><div className="l">{label}</div></div>
+            ))}
+          </div>
+        )}
+        {out && out.sequences.length === 0 && (
+          <>
+            <p>You need a sequence first: 3 short emails, sent 3 and 4 days apart. Wynmail can start you off with a draft to rewrite.</p>
+            <Btn busyText="Creating..." onClick={makeStarter}>Create a starter sequence</Btn>
+          </>
+        )}
+        {out && out.sequences.length > 0 && (
+          <>
+            <div className="row" style={{ alignItems: 'flex-end' }}>
+              <div className="field" style={{ flex: 2 }}><label>Sequence</label>
+                <Select value={seqId} onChange={(e) => setSeqId(e.target.value)}>
+                  {out.sequences.map((q) => <option key={q.id} value={q.id}>{q.name} ({q.emails} emails{q.status !== 'active' ? ', off' : ''}{q.needs_editing ? ', needs writing' : ''})</option>)}
+                </Select></div>
+              <div className="field" style={{ flex: 1 }}><label>Start for how many</label>
+                <input type="number" min="1" max="200" value={batch} onChange={(e) => setBatch(e.target.value)} /></div>
+              <Btn busyText="Starting..." disabled={!seqId} onClick={startOut}>Start outreach</Btn>
+            </div>
+            <p className="muted" style={{ marginTop: 8 }}>Today your mailboxes can still send {out.stats.capacity_left} emails. Start about that many a day: the rest would wait until tomorrow.
+              {out.sequences.find((q) => String(q.id) === seqId)?.needs_editing && <strong> This sequence still has [EDIT] notes. Open Automations, write your own emails and switch it on.</strong>}</p>
+            <Link className="btn ghost sm" to="/automations">Edit sequences in Automations</Link>{' '}
+            <Link className="btn ghost sm" to="/replies">See replies</Link>
+          </>
+        )}
       </div>
 
       {open?.job && (

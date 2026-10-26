@@ -24,7 +24,7 @@ jobs:
       - run: npm ci
       - run: npm audit --audit-level=high
       - name: Unit tests
-        run: npm run test:csv && npm run test:builder && npm run test:domain && npm run test:spamrisk && npm run test:prospector && npm run test:smtp && node test/deliverability-unit.mjs && node test/results-unit.mjs
+        run: npm run test:csv && npm run test:builder && npm run test:domain && npm run test:spamrisk && npm run test:prospector && npm run test:smtp && npm run test:replies && node test/deliverability-unit.mjs && node test/results-unit.mjs
       - name: Migrations run forward and roll back
         run: |
           PGLITE_DIR=/tmp/pgm npm run migrate && PGLITE_DIR=/tmp/pgm npm run migrate:down -- 2 && PGLITE_DIR=/tmp/pgm npm run migrate

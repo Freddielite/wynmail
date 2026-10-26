@@ -1,5 +1,6 @@
 import { one, many, query } from './db.js';
 import { encrypt } from './config.js';
+import { imapHostFor } from './imaphost.js';
 
 // A workspace can send through several normal mailboxes (Zoho Mail, Google Workspace). Each has its own daily cap,
 // and sends rotate: the mailbox used least recently, with room left today, goes next.
@@ -7,7 +8,7 @@ import { encrypt } from './config.js';
 export const CAP_MIN = 1, CAP_MAX = 500, DEFAULT_CAP = 30;
 const TODAY = `(now() AT TIME ZONE 'UTC')::date`;
 
-const PUBLIC = `id, workspace_id, label, host, port, username, from_email, daily_cap, enabled, last_used_at, last_error, last_error_at, verified_at, created_at,
+const PUBLIC = `id, workspace_id, label, host, port, username, from_email, daily_cap, enabled, last_used_at, last_error, last_error_at, verified_at, created_at, imap_host, watch_replies, imap_checked_at, imap_error,
   CASE WHEN sent_day = ${TODAY} THEN sent_today ELSE 0 END AS sent_today,
   GREATEST(0, daily_cap - CASE WHEN sent_day = ${TODAY} THEN sent_today ELSE 0 END) AS left_today`;
 
@@ -15,9 +16,9 @@ export const listMailboxes = (workspaceId) => many(`SELECT ${PUBLIC} FROM mailbo
 
 export async function createMailbox(workspaceId, m) {
   return one(
-    `INSERT INTO mailboxes (workspace_id, label, host, port, username, password_enc, from_email, daily_cap, verified_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now()) RETURNING ${PUBLIC}`,
-    [workspaceId, m.label, m.host, m.port, m.username, encrypt(m.password), m.from_email, m.daily_cap]);
+    `INSERT INTO mailboxes (workspace_id, label, host, port, username, password_enc, from_email, daily_cap, verified_at, imap_host, watch_replies)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), $9, $10) RETURNING ${PUBLIC}`,
+    [workspaceId, m.label, m.host, m.port, m.username, encrypt(m.password), m.from_email, m.daily_cap, m.imap_host ?? imapHostFor(m.host), m.watch_replies !== false]);
 }
 
 export async function updateMailbox(workspaceId, id, m) {
@@ -25,11 +26,15 @@ export async function updateMailbox(workspaceId, id, m) {
     `UPDATE mailboxes SET label = COALESCE($3, label), host = COALESCE($4, host), port = COALESCE($5, port), username = COALESCE($6, username),
        password_enc = COALESCE($7, password_enc), from_email = COALESCE($8, from_email), daily_cap = COALESCE($9, daily_cap),
        enabled = COALESCE($10::boolean, enabled),
+       imap_host = COALESCE($12, imap_host), watch_replies = COALESCE($13::boolean, watch_replies),
+       imap_error = CASE WHEN $12 IS NOT NULL OR $7 IS NOT NULL OR $13::boolean IS TRUE THEN NULL ELSE imap_error END,
+       imap_last_uid = CASE WHEN $12 IS NOT NULL THEN NULL ELSE imap_last_uid END,
        last_error = CASE WHEN $10::boolean IS TRUE OR $7 IS NOT NULL THEN NULL ELSE last_error END,
        verified_at = CASE WHEN $11::boolean THEN now() ELSE verified_at END
      WHERE id = $1 AND workspace_id = $2 RETURNING ${PUBLIC}`,
     [id, workspaceId, m.label ?? null, m.host ?? null, m.port ?? null, m.username ?? null, m.password ? encrypt(m.password) : null,
-     m.from_email ?? null, m.daily_cap ?? null, typeof m.enabled === 'boolean' ? m.enabled : null, !!m.verified]);
+     m.from_email ?? null, m.daily_cap ?? null, typeof m.enabled === 'boolean' ? m.enabled : null, !!m.verified,
+     m.imap_host ?? null, typeof m.watch_replies === 'boolean' ? m.watch_replies : null]);
 }
 
 export const deleteMailbox = (workspaceId, id) => one(`DELETE FROM mailboxes WHERE id = $1 AND workspace_id = $2 RETURNING id`, [id, workspaceId]);

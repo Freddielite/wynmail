@@ -36,6 +36,7 @@ import automationsAdmin from './automationsAdmin.js';
 import { SSO_ENABLED } from '../flags.js';
 import prospectorRoutes from './prospector.js';
 import mailboxRoutes from './mailboxes.js';
+import replyRoutes from './replies.js';
 import { audit, listAudit } from '../audit.js';
 import { archive, listDeleted, restore, kindOf, eraseNow } from '../archive.js';
 import { PERMISSIONS, permissionsOf, requiredPermission, cleanPermissions } from '../perms.js';
@@ -697,6 +698,7 @@ router.use('/analytics', analyticsRoutes);
 router.use('/automations', automationsAdmin);
 router.use('/prospector', prospectorRoutes);
 router.use('/mailboxes', mailboxRoutes);
+router.use('/replies', replyRoutes);
 if (SSO_ENABLED) router.use('/', (await import('./ssoAdmin.js')).default); // SSO settings and SCIM tokens
 
 /* ---------- blocked addresses ---------- */

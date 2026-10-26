@@ -4,6 +4,7 @@ import { audit } from '../audit.js';
 import { isEmail, normEmail, cleanText } from '../validate.js';
 import { listMailboxes, createMailbox, updateMailbox, deleteMailbox, capacity, CAP_MIN, CAP_MAX, DEFAULT_CAP } from '../mailboxes.js';
 import { verifyMailbox, smtpProviderFor, ALLOWED_PORTS, HOST_RE } from '../providers/smtp.js';
+import { pollMailbox } from '../replies.js';
 
 // Mailboxes the workspace sends through (Zoho Mail, Google Workspace...). Passwords are encrypted and never sent back.
 const router = Router({ mergeParams: true });
@@ -48,6 +49,11 @@ function read(b, workspace, current = null) {
     if (!Number.isInteger(out.daily_cap) || out.daily_cap < CAP_MIN || out.daily_cap > CAP_MAX) return { error: `Daily limit must be ${CAP_MIN} to ${CAP_MAX}` };
   }
   if (b.enabled !== undefined) out.enabled = b.enabled === true;
+  if (b.watch_replies !== undefined) out.watch_replies = b.watch_replies === true;
+  if (b.imap_host !== undefined) {
+    out.imap_host = String(b.imap_host).trim().toLowerCase();
+    if (!HOST_RE.test(out.imap_host) || out.imap_host.length > 253) return { error: 'Enter the incoming mail (IMAP) server, like imap.zoho.com' };
+  }
   return { value: out };
 }
 
@@ -98,6 +104,16 @@ router.delete('/:id', async (req, res) => {
   if (!gone) return res.status(404).json({ error: 'not found' });
   await audit(req, 'mailbox.deleted', { target: gone.id });
   res.json({ ok: true });
+});
+
+// Looks at the mailbox's inbox now for replies, removal requests and bounces, instead of waiting for the next automatic check.
+router.post('/:id/check-replies', async (req, res) => {
+  if (!/^\d{1,9}$/.test(req.params.id)) return bad(res, 'bad id');
+  const box = await one(`SELECT * FROM mailboxes WHERE id = $1 AND workspace_id = $2`, [req.params.id, ws(req)]);
+  if (!box) return res.status(404).json({ error: 'not found' });
+  if (!box.imap_host) return bad(res, 'Enter the incoming mail server for this mailbox first');
+  const r = await pollMailbox(box);
+  res.status(r.ok ? 200 : 400).json(r.ok ? r : { error: r.error });
 });
 
 // Sends one test email through this mailbox, to the signed-in person's own address only. Counts towards its daily limit.

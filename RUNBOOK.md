@@ -58,3 +58,8 @@ Mail arrives at `SECURITY_CONTACT`. Acknowledge in 2 working days, fix, deploy, 
 - Settings > Sending mailboxes shows the problem. "The mailbox refused the username or password": the app password was revoked or changed. Create a new app password, edit the mailbox, switch it on. It switches itself off on a bad login so the provider does not lock the account.
 - Everything waiting is fine: the queue keeps it for tomorrow when the daily limits are reached.
 - Check the mailbox itself for bounce replies. Remove those addresses from Prospects.
+
+## Replies are not showing up
+- Settings > Sending mailboxes shows the reply status under each mailbox. "Could not sign in to read replies": turn on IMAP in Zoho Mail (Settings > Mail Accounts > IMAP) or Google (IMAP is on by default; the app password must be valid), then press "Check replies".
+- A person replying from a different address than the one you emailed is not matched. Check the mailbox itself.
+- Wrongly stopped a person? Remove the `replied` tag and clear the reply from their contact page, then start them in a sequence again manually.

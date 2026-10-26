@@ -165,8 +165,18 @@ check('every business remembers its map page', biz.every((b) => /^https:\/\/www\
 let sentUrl = '';
 const found = await D.discoverBusinesses({ category: 'hotels', city: 'Lagos', country: 'NG' }, { get: async (u, o) => { sentUrl = u; return { status: 200, type: 'application/json', body: JSON.stringify(osm), ua: o.userAgent }; } });
 check('a search asks the public map servers politely and returns businesses', found.total === 2 && sentUrl.startsWith('https://overpass-api.de/api/interpreter?data=') && !sentUrl.includes('"') );
-check('if the first map server fails the second is tried', (await D.discoverBusinesses({ category: 'hotels', city: 'Lagos', country: 'NG' }, { get: (() => { let n = 0; return async () => (++n === 1 ? { status: 504 } : { status: 200, type: 'application/json', body: JSON.stringify(osm) }); })() })).total === 2);
-check('and a clear error if none answer', await D.discoverBusinesses({ category: 'hotels', city: 'Lagos', country: 'NG' }, { get: async () => ({ error: 'ETIMEOUT' }) }).then(() => false, (e) => e.status === 502));
+check('if the first map server fails the next is tried', (await D.discoverBusinesses({ category: 'hotels', city: 'Lagos', country: 'NG' }, { get: (() => { let n = 0; return async () => (++n === 1 ? { status: 504 } : { status: 200, type: 'application/json', body: JSON.stringify(osm) }); })() })).total === 2);
+check('all four servers are tried before giving up', await (async () => { const urls = []; await D.discoverBusinesses({ category: 'hotels', city: 'Lagos', country: 'NG' }, { get: async (u) => { urls.push(u.split('?')[0]); return { status: 429 }; } }).catch(() => {}); return urls.length === 4 && new Set(urls).size === 4; })());
+const tryFind = (get) => D.discoverBusinesses({ category: 'hotels', city: 'Lagos', country: 'NG' }, { get }).then(() => null, (e) => e);
+const busyErr = await tryFind(async () => ({ status: 429 }));
+check('"busy" is said plainly, with what each server answered', busyErr?.status === 502 && /busy/.test(busyErr.message) && /429/.test(busyErr.message), busyErr?.message);
+const netErr = await tryFind(async () => ({ error: 'ENOTFOUND' }));
+check('"no connection" is told apart from "busy"', /could not connect/.test(netErr?.message) && /ENOTFOUND/.test(netErr.message), netErr?.message);
+const bigErr = await tryFind(async () => ({ status: 200, type: 'application/json', body: JSON.stringify({ elements: [], remark: 'runtime error: Query timed out in "query" at line 3' }) }));
+check('a search the server gave up on says it is too big', /too big/.test(bigErr?.message), bigErr?.message);
+const odd = await tryFind(async () => ({ status: 200, type: 'text/html', body: '<html>nope</html>' }));
+check('an answer that is not data is reported', /usable answer/.test(odd?.message) && /not JSON/.test(odd.message), odd?.message);
+check('an empty but successful search is not an error', (await D.discoverBusinesses({ category: 'hotels', city: 'Lagos', country: 'NG' }, { get: async () => ({ status: 200, type: 'application/json', body: '{"elements":[]}' }) })).total === 0);
 
 /* ---------- saving richer leads ---------- */
 const ws3 = await one(`INSERT INTO workspaces (name, slug) VALUES ('Third', 'third') RETURNING *`);

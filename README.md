@@ -280,3 +280,20 @@ Resend does not allow email to strangers, so cold outreach goes through normal m
 - Mail server addresses are checked: public servers only, standard mail ports only, certificate checked, TLS required.
 - **Limit:** with SMTP there is no delivery, bounce or spam-complaint feed (Resend provides those). Opens and clicks still work (Wynmail's own links). Late bounces arrive in the mailbox as replies: check the inbox, and remove those addresses. Reading them automatically is a later step.
 - Tests: `npm run test:smtp` (talks to a real local SMTP server over STARTTLS).
+
+## Replies, follow-ups and the 3-email limit
+
+**Replies are read from your mailboxes.** Each sending mailbox's inbox is checked every 2 minutes over IMAP (read only: nothing is marked read, moved or deleted). Zoho and Google servers are filled in for you; for others type the incoming server. Turn on IMAP in the mailbox's own settings if it says it cannot sign in.
+
+What Wynmail does with each message that answers one of your emails:
+- **A reply:** the person is marked as replied (tag `replied`), their sequence stops at once, waiting emails to them are cancelled, you get a notification, and it appears on the **Replies** page. Answer from your mail app.
+- **"Remove me" / "stop emailing me":** they are unsubscribed immediately and nothing more is sent.
+- **Bounce notice:** a permanent failure marks the email, stops the person and never emails them again. A temporary one is only recorded.
+- **Out-of-office:** recorded, changes nothing.
+- Mail that is not about your emails is ignored.
+
+**Sequences (follow-ups):** Prospector > Outreach. Create the starter sequence (3 emails, sent 3 and 4 days apart), rewrite it in Automations, switch it on, then **Start outreach** for a batch of prospects (named people first, only people not emailed yet). The starter is paused and full of `[EDIT]` notes on purpose: it will not start until they are gone. Sequences can end on a reply (goal) and can check "has replied".
+
+**Rules enforced at the moment of sending, for every email to a prospect** (so a campaign, a sequence or a mistake cannot break them): never after they replied, never more than 3 emails in total, never two emails less than 48 hours apart (an early one waits and uses no attempt). People who signed up are not affected. Change with `PROSPECT_MAX_EMAILS` and `PROSPECT_MIN_GAP_HOURS`.
+
+**Limits:** some providers rewrite message ids, so a reply is matched by the id and, failing that, by the sender's address; a person who replies from a different address than the one you emailed will not be matched. Mailboxes with IMAP switched off in the provider cannot be read. This was tested with sample messages and a simulated mailbox, not against a live Zoho or Google inbox: use "Check replies" on a real mailbox first.

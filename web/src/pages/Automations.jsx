@@ -18,13 +18,14 @@ const TRIGGERS = {
   list_join: 'Someone joins a list',
   tag_added: 'Someone gets a tag',
   link_click: 'Someone clicks a link in one of your emails',
-  date_field: 'A date on their contact record arrives'
+  date_field: 'A date on their contact record arrives',
+  manual: 'I start it myself (cold outreach)'
 };
 const CONDS = {
   opened: 'Opened an email', clicked: 'Clicked a link in an email', clicked_link: 'Clicked a link containing',
-  has_tag: 'Has the tag', on_list: 'Is on the list', attr_equals: 'Has a field equal to'
+  has_tag: 'Has the tag', on_list: 'Is on the list', attr_equals: 'Has a field equal to', replied: 'Has replied'
 };
-const GOALS = { '': 'Nobody, send the whole sequence', tag: 'Someone gets a tag', list: 'Someone joins a list', link: 'Someone clicks a link' };
+const GOALS = { '': 'Nobody, send the whole sequence', tag: 'Someone gets a tag', list: 'Someone joins a list', link: 'Someone clicks a link', replied: 'Someone replies to an email' };
 
 const toTarget = (t) => (t === '' || t === null || t === undefined ? null : Number(t));
 const fromTarget = (t) => (t === null || t === undefined ? '' : String(t));
@@ -47,10 +48,11 @@ function splitDelay(minutes) {
 
 const runPill = { active: 'amber', completed: 'green', cancelled: 'gray' };
 const runLabel = { active: 'in progress', completed: 'finished', cancelled: 'stopped' };
-const endLabel = { goal: 'reached the goal', condition: 'stopped by a check', left: 'left the list', finished: 'finished' };
+const endLabel = { goal: 'reached the goal', condition: 'stopped by a check', left: 'left the list', finished: 'finished', replied: 'replied', bounced: 'bounced', unsubscribed: 'asked to stop' };
 
 const triggerText = (a, listName) => {
   switch (a.trigger_type) {
+    case 'manual': return 'Started by you from the Prospector (Start outreach)';
     case 'tag_added': return `When someone gets the tag "${a.trigger_value}"`;
     case 'link_click': return `When someone clicks a link containing "${a.trigger_value}"`;
     case 'date_field': {
@@ -99,7 +101,7 @@ export default function Automations() {
   const save = guard(async () => {
     if (!draft.name.trim()) throw new Error('Give the automation a name');
     if (draft.trigger_type === 'list_join' && !draft.list_id) throw new Error('Choose the list that starts it');
-    if (draft.trigger_type !== 'list_join' && !String(draft.trigger_value).trim()) throw new Error('Fill in what starts the automation');
+    if (!['list_join', 'manual'].includes(draft.trigger_type) && !String(draft.trigger_value).trim()) throw new Error('Fill in what starts the automation');
     const body = {
       name: draft.name, trigger_type: draft.trigger_type, trigger_value: draft.trigger_value, list_id: draft.list_id ? Number(draft.list_id) : null,
       trigger_offset_days: Number(draft.offset_days || 0), trigger_yearly: draft.yearly, include_imports: draft.include_imports, active: draft.active,

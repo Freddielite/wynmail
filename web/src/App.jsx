@@ -17,6 +17,7 @@ import Forms from './pages/Forms.jsx';
 import Automations from './pages/Automations.jsx';
 import Bell from './pages/Notifications.jsx';
 import Prospector from './pages/Prospector.jsx';
+import Replies from './pages/Replies.jsx';
 import { SSO_ENABLED } from './flags.js';
 import Select from './Select.jsx';
 
@@ -70,6 +71,7 @@ function Shell({ user, workspaces, onLogout }) {
           <NavLink to="/segments">Segments</NavLink>
           <NavLink to="/automations">Automations</NavLink>
           {canProspect && <NavLink to="/prospector">Prospector</NavLink>}
+          {canProspect && <NavLink to="/replies">Replies</NavLink>}
           <NavLink to="/api">API</NavLink>
           <NavLink to="/team">Team</NavLink>
           <NavLink to="/settings">Settings</NavLink>
@@ -108,6 +110,7 @@ function Shell({ user, workspaces, onLogout }) {
           <Route path="/settings" element={<Settings admin={!!user?.is_admin} />} />
           {user?.is_admin && <Route path="/clients" element={<Clients />} />}
           <Route path="/prospector" element={<Prospector />} />
+          <Route path="/replies" element={<Replies />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

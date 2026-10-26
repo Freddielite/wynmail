@@ -9,13 +9,13 @@ import { claimMailbox, claimSpecific, releaseSlot, recordFailure, recordSuccess 
 // Sends through the workspace's own mailboxes over SMTP. Same contract as the other providers:
 //   send({ to, subject, html, text, headers, replyTo }) -> { id, mailboxId }
 // Test mode (SMTP_TEST_MODE=1, never in production) allows a local test server and a self-signed certificate.
-const testMode = () => process.env.SMTP_TEST_MODE === '1' && process.env.NODE_ENV !== 'production';
+export const testMode = () => process.env.SMTP_TEST_MODE === '1' && process.env.NODE_ENV !== 'production';
 export const ALLOWED_PORTS = [465, 587, 2525];
 
 export const HOST_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i;
 
 // The server the user typed must be a public mail server. Resolved here and pinned, so a DNS trick cannot point us inward.
-async function resolvePublic(host) {
+export async function resolvePublic(host) {
   if (net.isIP(host)) { if (!testMode() && isPrivateIp(host)) throw smtpError('blocked', 'That mail server address is not allowed.'); return host; }
   let addrs;
   try { addrs = await dns.lookup(host, { all: true }); } catch { throw smtpError('dns', `Could not find the mail server ${host}. Check the spelling.`); }

@@ -48,7 +48,8 @@ export function buildQuery({ category, city, country, limit = 250 }) {
   return `[out:json][timeout:25];area["ISO3166-1"="${country}"]->.c;area["name"="${place.replace(/"/g, '')}"](area.c)->.a;(${filters});out tags center ${Math.min(limit, 500)};`;
 }
 
-const SERVERS = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter'];
+const SERVERS = ['https://overpass-api.de/api/interpreter', 'https://lz4.overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter', 'https://overpass.private.coffee/api/interpreter'];
+const shortName = (u) => new URL(u).hostname.replace(/^(lz4\.|overpass\.)/, '').replace(/\.(de|systems|coffee)$/, '');
 const tag = (t, ...keys) => keys.map((k) => t[k]).find((v) => typeof v === 'string' && v.trim());
 
 export function readBusinesses(json, { city, category }) {
@@ -75,7 +76,8 @@ export function readBusinesses(json, { city, category }) {
   return out;
 }
 
-// Returns { businesses, total }. `get` can be replaced in tests.
+// Returns { businesses, total }. `get` can be replaced in tests. Four public servers are tried in turn, and if all fail the
+// message says what each one answered, so a problem can be told apart (busy, blocked, too big, or no connection).
 export async function discoverBusinesses({ category, city, country = 'NG' }, { get = fetchPage } = {}) {
   const query = buildQuery({ category, city, country });
   if (process.env.PROSPECT_DISCOVER_FIXTURE && process.env.NODE_ENV !== 'production') { // tests only
@@ -83,18 +85,27 @@ export async function discoverBusinesses({ category, city, country = 'NG' }, { g
     const businesses = readBusinesses(json, { city, category });
     return { businesses, total: businesses.length };
   }
-  let lastError = 'The map service did not answer. Try again in a minute.';
+  const why = [];
+  let tooBig = false;
   for (const server of SERVERS) {
-    const r = await get(`${server}?data=${encodeURIComponent(query)}`, { userAgent: userAgent(), accept: 'application/json', types: /json/, timeout: 30000, maxBytes: 6000000 });
-    if (r.status === 429 || r.status === 504) { lastError = 'The map service is busy. Try again in a minute.'; continue; }
-    if (r.body) {
-      let json;
-      try { json = JSON.parse(r.body); } catch { continue; }
-      const businesses = readBusinesses(json, { city, category });
-      return { businesses, total: businesses.length };
-    }
+    const name = shortName(server);
+    const r = await get(`${server}?data=${encodeURIComponent(query)}`, { userAgent: userAgent(), accept: '*/*', types: /json|text/, timeout: 45000, maxBytes: 6000000 });
+    if (r.error) { why.push(`${name}: ${r.error}`); continue; }
+    if (r.status !== 200 || !r.body) { why.push(`${name}: HTTP ${r.status}`); continue; }
+    let json;
+    try { json = JSON.parse(r.body); } catch { why.push(`${name}: not JSON`); continue; }
+    // The server answers 200 even when it gave up: the reason is in "remark".
+    if (!json.elements?.length && /timed out|out of memory|runtime error|too many/i.test(String(json.remark || ''))) { tooBig = true; why.push(`${name}: gave up`); continue; }
+    const businesses = readBusinesses(json, { city, category });
+    return { businesses, total: businesses.length };
   }
-  throw Object.assign(new Error(lastError), { status: 502 });
+  console.error(JSON.stringify({ level: 'error', msg: 'business search failed', category, country, why }));
+  const busy = why.every((w) => /HTTP (429|504|502|503)|gave up|ETIMEOUT/.test(w));
+  const message = tooBig ? 'That search is too big for the free map service. Try a smaller town or a narrower type of business.'
+    : busy ? 'The free map service is busy right now. Try again in a minute.'
+    : why.every((w) => /ENOTFOUND|ECONN|EAI_AGAIN|EBLOCKED/.test(w)) ? 'Wynmail could not connect to the map service.'
+    : 'The map service did not give a usable answer.';
+  throw Object.assign(new Error(`${message} (${why.join('; ')})`), { status: 502 });
 }
 
 export { registrableDomain };

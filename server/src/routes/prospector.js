@@ -4,6 +4,7 @@ import { normalizeSite } from '../finder.js';
 import { cleanText, isEmail, normEmail } from '../validate.js';
 import { CATEGORIES, COUNTRIES, discoverBusinesses } from '../discover.js';
 import { audit } from '../audit.js';
+import { createStarter, listSequences, outreachStats, startOutreach } from '../outreach.js';
 import { MAX_SITES_PER_JOB, DAILY_SITES, readSites, createJob, cancelJob, listJobs, jobDetail, ensureProspectsList } from '../prospector.js';
 
 const router = Router({ mergeParams: true });
@@ -27,6 +28,28 @@ router.post('/discover', async (req, res) => {
     const r = await discoverBusinesses({ category: b.category, city: b.city, country: String(b.country || 'NG').toUpperCase() });
     await audit(req, 'prospector.discover', { meta: { category: b.category, city: String(b.city).slice(0, 60), country: b.country, found: r.total } });
     res.json({ ...r, with_website: r.businesses.filter((x) => x.website).length, with_email: r.businesses.filter((x) => x.email).length });
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    throw err;
+  }
+});
+
+/* ---------- outreach: start the email sequence for prospects ---------- */
+router.get('/outreach', async (req, res) => res.json({ sequences: await listSequences(ws(req)), stats: await outreachStats(ws(req)) }));
+
+// A paused sequence of 3 emails with starter copy to rewrite. Nothing sends until it is edited and switched on.
+router.post('/outreach/starter', async (req, res) => {
+  const a = await createStarter(ws(req));
+  await audit(req, 'outreach.starter_created', { target: a.id });
+  res.json(a);
+});
+
+// Starts the sequence for the next batch of prospects who have not been emailed. Small batches keep each mailbox under its daily limit.
+router.post('/outreach/start', async (req, res) => {
+  try {
+    const r = await startOutreach(ws(req), Number(req.body?.automation_id), req.body?.count);
+    await audit(req, 'outreach.started', { target: req.body?.automation_id, meta: { started: r.started } });
+    res.json(r);
   } catch (err) {
     if (err.status) return res.status(err.status).json({ error: err.message });
     throw err;

@@ -39,7 +39,7 @@ export const cleanPermissions = (list) => (Array.isArray(list) ? [...new Set(lis
 // Which permission a request needs. Reading needs none (everyone in the workspace can look).
 // Anything not listed here and not a read is refused, so a new route is closed until it is listed.
 const RULES = [
-  [/^(GET|POST|PUT|DELETE)$/, /^\/prospector/, 'prospector.use'],
+  [/^(GET|POST|PUT|DELETE)$/, /^\/(prospector|replies)/, 'prospector.use'],
   [/^(GET|POST|PUT|DELETE)$/, /^\/mailboxes/, 'mailboxes.manage'],
   [/^GET$/, /^\/api-keys/, 'apikeys.manage'],
   [/^GET$/, /^\/(contacts\/export|campaigns\/\d+\/export)$/, 'contacts.export'],
