@@ -74,6 +74,31 @@ const id = listed.data[0].id;
 await call('DELETE', `/api/workspaces/1/api-keys/${id}`, { token: A });
 check('revoked key stops working at once', (await call('GET', '/v1/lists', { key: KEY })).status === 401);
 
+// list stats, recent contacts, create and send a campaign over the API
+const KP = (await call('POST', '/api/workspaces/1/api-keys', { token: A, body: { name: 'posts' } })).data.key;
+const pl = (await call('POST', '/api/workspaces/1/lists', { token: A, body: { name: 'Posts list' } })).data;
+await call('POST', '/v1/contacts', { key: KP, body: { email: 'reader@example.com', first_name: 'Reader', list_ids: [pl.id] } });
+const st = await call('GET', `/v1/lists/${pl.id}/stats`, { key: KP });
+check('list stats count subscribers', st.status === 200 && st.data.subscribed === 1 && st.data.joined_7d === 1 && st.data.unsubscribed === 0, JSON.stringify(st.data));
+check('list stats for an unknown list is 404', (await call('GET', '/v1/lists/99999/stats', { key: KP })).status === 404);
+const rc = await call('GET', `/v1/lists/${pl.id}/contacts?limit=5`, { key: KP });
+check('recent contacts endpoint lists newest first', rc.status === 200 && rc.data.data[0]?.email === 'reader@example.com' && rc.data.data[0].status === 'subscribed', JSON.stringify(rc.data));
+const rc2 = await call('GET', `/v1/lists/${pl.id}/contacts?limit=5&offset=1`, { key: KP });
+check('contacts endpoint pages with offset', rc2.status === 200 && rc2.data.data.length === 0, JSON.stringify(rc2.data));
+check('create campaign needs a subject, html and one of your lists',
+  (await call('POST', '/v1/campaigns', { key: KP, body: { html: 'x', list_id: pl.id } })).status === 400
+  && (await call('POST', '/v1/campaigns', { key: KP, body: { subject: 's', list_id: pl.id } })).status === 400
+  && (await call('POST', '/v1/campaigns', { key: KP, body: { subject: 's', html: 'x', list_id: 99999 } })).status === 400);
+const made2 = await call('POST', '/v1/campaigns', { key: KP, body: { name: 'post:hello', subject: 'New post', html: '<p>Read it</p>', list_id: pl.id } });
+check('campaign is created as a draft', made2.status === 201 && made2.data.status === 'draft' && made2.data.name === 'post:hello', JSON.stringify(made2.data));
+check('send needs an existing campaign', (await call('POST', '/v1/campaigns/99999/send', { key: KP })).status === 404);
+const sent2 = await call('POST', `/v1/campaigns/${made2.data.id}/send`, { key: KP });
+check('draft is queued for the list', sent2.status === 200 && sent2.data.queued === 1, JSON.stringify(sent2.data));
+check('a sent campaign cannot be sent twice', (await call('POST', `/v1/campaigns/${made2.data.id}/send`, { key: KP })).status === 400);
+await new Promise((r) => setTimeout(r, 4500));
+const done2 = await call('GET', `/v1/campaigns/${made2.data.id}`, { key: KP });
+check('the API-sent campaign was delivered', done2.data.sent === 1, JSON.stringify(done2.data));
+
 // daily cap
 const K3 = (await call('POST', '/api/workspaces/1/api-keys', { token: A, body: { name: 'cap' } })).data.key;
 await call('PUT', `/api/admin/workspaces/1`, { token: A, body: { daily_limit: 1 } });

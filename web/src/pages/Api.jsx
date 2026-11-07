@@ -8,6 +8,10 @@ const ENDPOINTS = [
   ['GET', '/v1/contacts/{email}', 'Look up a contact and their status'],
   ['POST', '/v1/contacts/{email}/unsubscribe', 'Unsubscribe a contact'],
   ['GET', '/v1/lists', 'List your lists and their sizes'],
+  ['GET', '/v1/lists/{id}/stats', 'Subscribed, unsubscribed, bounced and recently joined counts for one list'],
+  ['GET', '/v1/lists/{id}/contacts', 'Newest contacts on a list (?limit=, ?offset=, ?status=)'],
+  ['POST', '/v1/campaigns', 'Create a draft campaign for a list (subject, html, list_id)'],
+  ['POST', '/v1/campaigns/{id}/send', 'Send a draft campaign now. Held for review if it looks like spam'],
   ['GET', '/v1/campaigns', 'List campaigns with sent, open and click counts'],
   ['GET', '/v1/campaigns/{id}', 'One campaign with its stats']
 ];
