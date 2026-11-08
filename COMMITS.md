@@ -134,3 +134,4 @@
 132. `feat(web): add the Replies page, the Outreach card, reply status on mailboxes and the new automation options`
 133. `test(replies): cover message classification, matching, polling, the send rules and sequence starting`
 134. `fix(prospector): try four public map servers and say exactly why a business search failed (busy, too big, no connection)`
+135. `feat(forms): notify workspace owners in the app and by email when someone becomes a subscriber`

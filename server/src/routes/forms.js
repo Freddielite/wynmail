@@ -16,6 +16,7 @@ import { actionEmail } from '../sysmail.js';
 import { hashKey } from '../apikeys.js';
 import { formPage, messagePage, esc } from '../pages.js';
 import { assessEmail } from '../hygiene.js';
+import { notify } from '../notify.js';
 
 const router = Router();
 const urlencoded = express.urlencoded({ extended: false, limit: '20kb' });
@@ -169,6 +170,20 @@ async function finalize(s, f) {
   }
   // A returning subscriber only becomes eligible now that their status is subscribed again.
   if (f.list_id) await enroll(s.workspace_id, contact.id, [f.list_id], 'form');
+
+  // Tell the workspace owners about the new subscriber. Never let this break the signup itself.
+  try {
+    const list = f.list_id ? await one(`SELECT name FROM lists WHERE id = $1`, [f.list_id]) : null;
+    const who = [s.first_name, s.last_name].filter(Boolean).join(' ');
+    await notify(s.workspace_id, {
+      kind: 'subscriber',
+      title: `New subscriber: ${s.email}`,
+      body: `${who ? `${who} (${s.email})` : s.email} joined${list ? ` "${list.name}"` : ''} through "${f.name}".`,
+      path: '/contacts'
+    });
+  } catch (err) {
+    console.error('[forms] subscriber notification failed:', err.message);
+  }
 }
 
 /* ---------- confirmation link ---------- */

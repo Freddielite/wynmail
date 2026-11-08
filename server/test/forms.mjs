@@ -98,6 +98,8 @@ const ada = (await contacts()).find((c) => c.email === 'ada@example.com');
 check('contact is subscribed with a full consent record', ada?.status === 'subscribed' && ada.consent_source === `form:${f1.slug}` && ada.consent_text === base.consent_text && !!ada.consent_ip && ada.first_name === 'Ada', JSON.stringify(ada));
 const inList = (await call('GET', '/api/workspaces/1/lists', { token: A })).data.find((l) => l.id === list.id);
 check('contact joined the form list', inList.subscribed_count === 1);
+const notes = (await call('GET', '/api/workspaces/1/notifications', { token: A })).data.items || [];
+check('owner is notified about the new subscriber', notes.some((n) => n.kind === 'subscriber' && n.title.includes('ada@example.com')), JSON.stringify(notes));
 check('the link works only once', (await fetch(`${BASE}/confirm/${tok}`, { method: 'POST' })).status === 400);
 check('garbage confirmation links are refused', (await fetch(`${BASE}/confirm/${'x'.repeat(43)}`)).status === 400);
 
