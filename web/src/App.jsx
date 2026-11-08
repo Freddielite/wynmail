@@ -21,7 +21,7 @@ import Replies from './pages/Replies.jsx';
 import { SSO_ENABLED } from './flags.js';
 import Select from './Select.jsx';
 
-function Shell({ user, workspaces, onLogout }) {
+function Shell({ user, workspaces, onLogout, onWorkspacesChanged }) {
   const nav = useNavigate();
   const current = workspaces.find((w) => String(w.id) === String(store.workspaceId)) || workspaces[0];
 
@@ -108,7 +108,7 @@ function Shell({ user, workspaces, onLogout }) {
           <Route path="/api" element={<Api />} />
           <Route path="/team" element={<Team />} />
           <Route path="/settings" element={<Settings admin={!!user?.is_admin} />} />
-          {user?.is_admin && <Route path="/clients" element={<Clients />} />}
+          {user?.is_admin && <Route path="/clients" element={<Clients onChanged={onWorkspacesChanged} />} />}
           <Route path="/prospector" element={<Prospector />} />
           <Route path="/replies" element={<Replies />} />
           <Route path="*" element={<Navigate to="/" replace />} />
@@ -148,7 +148,7 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      <Shell user={state.user} workspaces={state.workspaces} onLogout={logout} />
+      <Shell user={state.user} workspaces={state.workspaces} onLogout={logout} onWorkspacesChanged={load} />
     </BrowserRouter>
   );
 }

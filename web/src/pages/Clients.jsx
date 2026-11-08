@@ -4,7 +4,7 @@ import { Btn, useGuard } from '../ui.jsx';
 
 const blank = { name: '', owner_email: '', password: '', sending_domain: '' };
 
-export default function Clients() {
+export default function Clients({ onChanged }) {
   const guard = useGuard();
   const [rows, setRows] = useState([]);
   const [form, setForm] = useState(blank);
@@ -17,7 +17,9 @@ export default function Clients() {
     await api.adminCreateWorkspace(form);
     setForm(blank);
     await load();
-    return 'Client workspace created. Refresh to see it in the workspace switcher';
+    // Re-read the account's workspaces so the sidebar switcher shows the new one without a page refresh.
+    if (onChanged) await onChanged();
+    return 'Client workspace created';
   });
 
   const saveEdit = guard(async () => {
