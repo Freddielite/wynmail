@@ -13,7 +13,7 @@ import v1Routes from './routes/v1.js';
 import webhookRoutes from './routes/webhooks.js';
 import formRoutes from './routes/forms.js';
 import { publicMedia } from './routes/media.js';
-import { startWorker } from './queue.js';
+import { startWorker, queueHealth } from './queue.js';
 import { SSO_ENABLED } from './flags.js';
 import { startProspector } from './prospector.js';
 import { startReplyWatcher } from './replies.js';
@@ -50,7 +50,17 @@ const apiCors = cors({ origin: origins });
 app.get('/health', (_req, res) => res.json({ ok: true, service: 'wynmail' }));
 // Readiness: also proves the database answers. Point an uptime monitor at this one.
 app.get('/health/ready', async (_req, res) => {
-  try { await one('SELECT 1'); res.json({ ok: true }); } catch { res.status(503).json({ ok: false }); }
+  try {
+    await one('SELECT 1');
+  } catch {
+    return res.status(503).json({ ok: false });
+  }
+  // Sending is only healthy while the worker keeps finishing its rounds (one every few seconds).
+  // If it has not finished one for five minutes it is frozen: say so, so a monitor alerts and the host restarts it.
+  const q = queueHealth();
+  const frozen = q.started && q.lastRoundAgoMs !== null && q.lastRoundAgoMs > Number(process.env.QUEUE_FROZEN_MS || 300000);
+  if (frozen) return res.status(503).json({ ok: false, queue: 'frozen', lastRoundSecondsAgo: Math.round(q.lastRoundAgoMs / 1000) });
+  res.json({ ok: true, queue: q.started ? 'running' : 'off' });
 });
 // Where a stranger should send a vulnerability report (RFC 9116). Set SECURITY_CONTACT to an email or URL.
 app.get('/.well-known/security.txt', (_req, res) => {

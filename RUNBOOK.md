@@ -1,7 +1,7 @@
 # Wynmail runbook
 
 ## Health
-- `/health` process is up. `/health/ready` database answers. Monitor the second from outside (UptimeRobot or similar), alert by SMS.
+- `/health` process is up. `/health/ready` database answers and the sending queue is finishing its rounds (503 with `"queue":"frozen"` otherwise, and Render restarts the service). Monitor the second from outside (UptimeRobot, Pulse or similar), alert by SMS.
 - Every response has `X-Request-Id`; the same id is in the log line. Ask users for it.
 
 ## Deploy and roll back
@@ -32,6 +32,7 @@ Rotate in this order: Supabase DB password, `JWT_SECRET`, Resend API key and web
 Mail arrives at `SECURITY_CONTACT`. Acknowledge in 2 working days, fix, deploy, tell the reporter. Write a short postmortem: what happened, what changed so it cannot repeat.
 
 ## Alerts you will see
+- `queue: workspace skipped this round`, `queue: step failed`, `queue: message not sent`: one workspace, step or email had a problem and the rest carried on. The line says which workspace or step and why. A campaign stuck on Sending: open Campaigns and press Retry, or restart the service (emails left half-sent go back in the queue after 5 minutes).
 - `housekeeping failed`: a clean-up query errored, check DB health, harmless short term.
 - `audit write failed`: audit table or DB trouble; requests still work.
 - `idle pg client error`: DB restarted or dropped a connection; the pool recovers.

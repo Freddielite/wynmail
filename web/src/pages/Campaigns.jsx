@@ -146,6 +146,13 @@ export default function Campaigns() {
     return `Sending to ${res.queued} ${res.queued === 1 ? 'subscriber' : 'subscribers'}`;
   });
 
+  // Puts back what did not go out: emails that failed, or got stuck. Nobody gets a second copy.
+  const retry = (id) => guard(async () => {
+    const res = await api.retryCampaign(id);
+    await loadAll();
+    return res.requeued ? `Trying again for ${res.requeued} ${res.requeued === 1 ? 'person' : 'people'}` : 'Nothing is waiting to be retried';
+  });
+
   const review = (c) => setRisk({ campaign_id: c.id, risk: c.risk_score, reasons: c.risk_reasons || [], threshold: null });
   const sendAnyway = guard(async () => {
     const res = await api.sendCampaign(risk.campaign_id, true);
@@ -333,6 +340,8 @@ export default function Campaigns() {
                     {c.status === 'sending' && c.paused_reason && <div style={{ color: '#b45309', fontSize: 12 }}>Paused: {c.paused_reason}</div>}
                     {c.status === 'scheduled' && <div className="muted">{c.local_time ? `${(c.local_at || '').replace('T', ' ')} local time` : when(c.scheduled_at)}</div>}
                     {c.status === 'sending' && c.held > 0 && <div className="muted">{c.held} waiting for the test result</div>}
+                    {c.failed > 0 && <div className="muted">{c.failed} did not go out</div>}
+                    {c.status === 'sending' && c.stuck > 0 && <div className="muted">{c.stuck} waiting for over 10 minutes</div>}
                     {c.status === 'sending' && c.timed_waiting > 0 && <div className="muted">{c.timed_waiting} waiting for their time</div>}
                     {c.subject_b && <div className="muted">A/B test{c.ab_winner ? `: ${c.ab_winner} won` : ''}</div>}
                     {c.resend_of_name && <div className="muted">Resend of {c.resend_of_name}</div>}
@@ -349,6 +358,7 @@ export default function Campaigns() {
                     <Btn className="btn ghost sm" busyText="Loading..." onClick={showPreview(c.id)}>Preview</Btn>{' '}
                     <Btn className="btn ghost sm" busyText="Loading..." onClick={openReport(c)}>Report</Btn>{' '}
                     <Btn className="btn ghost sm" busyText="Copying..." onClick={duplicate(c)}>Duplicate</Btn>{' '}
+                    {['sent', 'sending'].includes(c.status) && (c.failed > 0 || c.stuck > 0) && <><Btn className="btn ghost sm" busyText="Retrying..." onClick={retry(c.id)}>Retry {c.failed + c.stuck}</Btn>{' '}</>}
                     {c.status === 'sent' && !c.resent && !c.resend_of_name && c.non_openers > 0 && <><button className="btn ghost sm" onClick={() => startResend(c)}>Resend to {c.non_openers} who did nothing</button>{' '}</>}
                     {c.status === 'needs_review' && (
                       <>

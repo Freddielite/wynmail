@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { many, one, query } from '../db.js';
-import { enqueueCampaign, RiskHold } from '../queue.js';
+import { enqueueCampaign, retryCampaign, RiskHold } from '../queue.js';
 import { assess } from '../spamrisk.js';
 import { notify } from '../notify.js';
 import { buildEmail } from '../render.js';
@@ -381,6 +381,8 @@ router.get('/campaigns', async (req, res) => {
        (SELECT count(*)::int FROM messages m WHERE m.campaign_id = c.id AND m.complained_at IS NOT NULL) AS complained,
        (SELECT count(*)::int FROM messages m WHERE m.campaign_id = c.id AND m.delivered_at IS NOT NULL) AS delivered,
        (SELECT count(*)::int FROM messages m WHERE m.campaign_id = c.id AND m.status = 'held') AS held,
+       (SELECT count(*)::int FROM messages m WHERE m.campaign_id = c.id AND m.status = 'failed' AND m.bounced_at IS NULL) AS failed,
+       (SELECT count(*)::int FROM messages m WHERE m.campaign_id = c.id AND m.status IN ('queued','sending') AND m.queued_at < now() - interval '10 minutes') AS stuck,
        (SELECT count(*)::int FROM messages m WHERE m.campaign_id = c.id AND m.status = 'queued' AND m.send_after > now()) AS timed_waiting,
        (SELECT count(*)::int FROM messages m WHERE m.campaign_id = c.id AND m.status = 'sent' AND m.opened_at IS NULL AND m.clicked_at IS NULL
           AND m.bounced_at IS NULL AND m.complained_at IS NULL AND m.unsubscribed_at IS NULL) AS non_openers,
@@ -780,6 +782,20 @@ router.get('/campaigns/:id/export', exportLimit, async (req, res) => {
 });
 
 // Sends the same email again, with a new subject, to people who got the first one and did nothing.
+// Puts back the emails of a campaign that did not go out (failed, or stuck mid-send).
+router.post('/campaigns/:id/retry', async (req, res) => {
+  if (!/^\d{1,9}$/.test(req.params.id)) return bad(res, 'bad campaign id');
+  if (!senderAllowed(req.workspace)) return bad(res, 'sender not approved: an admin must set your sending domain, and your from email must use it');
+  try {
+    const out = await retryCampaign(Number(req.params.id), ws(req));
+    await audit(req, 'campaign.retried', { target: Number(req.params.id), meta: out });
+    res.json(out);
+  } catch (err) {
+    if (err.status === 404) return res.status(404).json({ error: 'not found' });
+    bad(res, err.message);
+  }
+});
+
 router.post('/campaigns/:id/resend', async (req, res) => {
   const c = await one(`SELECT * FROM campaigns WHERE id = $1 AND workspace_id = $2`, [req.params.id, ws(req)]);
   if (!c) return res.status(404).json({ error: 'not found' });

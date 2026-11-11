@@ -11,7 +11,7 @@ import { rateLimit } from '../rateLimit.js';
 import { sentToday } from '../usage.js';
 import { assessEmail } from '../hygiene.js';
 import { idempotent } from '../idempotency.js';
-import { enqueueCampaign, RiskHold } from '../queue.js';
+import { enqueueCampaign, retryCampaign, RiskHold } from '../queue.js';
 
 const router = Router();
 const fail = (res, status, error) => res.status(status).json({ error });
@@ -137,6 +137,7 @@ const CAMPAIGN_SQL = `SELECT c.id, c.name, c.subject, c.status, c.list_id, c.sch
     (SELECT count(*)::int FROM messages m WHERE m.campaign_id = c.id) AS total,
     (SELECT count(*)::int FROM messages m WHERE m.campaign_id = c.id AND m.status = 'sent') AS sent,
     (SELECT count(*)::int FROM messages m WHERE m.campaign_id = c.id AND m.status = 'failed') AS failed,
+    (SELECT count(*)::int FROM messages m WHERE m.campaign_id = c.id AND m.status IN ('queued','sending','held')) AS waiting,
     (SELECT count(*)::int FROM messages m WHERE m.campaign_id = c.id AND m.opened_at IS NOT NULL) AS opened,
     (SELECT count(*)::int FROM messages m WHERE m.campaign_id = c.id AND m.clicked_at IS NOT NULL) AS clicked,
     (SELECT count(*)::int FROM messages m WHERE m.campaign_id = c.id AND m.unsubscribed_at IS NOT NULL) AS unsubscribed,
@@ -174,6 +175,18 @@ router.post('/campaigns', async (req, res) => {
 });
 
 // Send a draft now. Same checks as the dashboard: approved sender, footer address, spam-risk hold.
+// Puts back the emails of a campaign that did not go out (failed, or stuck mid-send). Nobody who
+// already got it is sent a second copy, and bounced, complained or unsubscribed people are skipped.
+router.post('/campaigns/:id/retry', async (req, res) => {
+  if (!/^\d{1,9}$/.test(req.params.id)) return fail(res, 400, 'Bad campaign id.');
+  if (!senderAllowed(req.workspace)) return fail(res, 400, 'Sender not approved. Ask an admin to set your sending domain, and use a from email on that domain in Settings.');
+  try {
+    res.json(await retryCampaign(Number(req.params.id), wid(req)));
+  } catch (err) {
+    fail(res, err.status || 400, err.message);
+  }
+});
+
 router.post('/campaigns/:id/send', async (req, res) => {
   if (!/^\d{1,9}$/.test(req.params.id)) return fail(res, 400, 'Bad campaign id.');
   const c = await one(`SELECT id, html FROM campaigns WHERE id = $1 AND workspace_id = $2`, [Number(req.params.id), wid(req)]);

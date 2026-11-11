@@ -104,6 +104,11 @@ An automation sends a sequence of emails to people after they join a list, for e
 - The People panel shows where everyone is in the sequence.
 - `AUTOMATION_MINUTE_MS` (default 60000) is a test knob that shortens how long a minute of delay lasts. Leave it unset in production.
 
+## Sending never stalls
+The sending queue is built so one problem cannot stop the rest. Each workspace, each step of a round and each message is handled on its own: an error in one is logged (look for `queue:` lines in the logs) and the others still go out. Every call to the email provider has a deadline (`SEND_TIMEOUT_MS`, 30 seconds), so one that never answers is cut off instead of holding up everything behind it. A failed email waits before its next try (about 30 seconds, then 2 minutes) so a short provider hiccup does not use up all three attempts at once. A round that gets stuck is replaced after `QUEUE_TICK_LIMIT_MS` (2 minutes), and an email left half-sent by a restart goes back in the queue after `QUEUE_STALE_MINUTES` (5). `/health/ready` answers 503 with `"queue":"frozen"` if no round has finished for `QUEUE_FROZEN_MS` (5 minutes); Render checks that path, so it restarts the service by itself, and a monitor pointed at it will alert you.
+
+**Retry.** A campaign that shows emails that did not go out (a failure, or waiting for over 10 minutes) gets a **Retry** button on the Campaigns page. It puts back only those emails: nobody who already got it is sent a second copy, and bounced, complained or unsubscribed people are skipped. The same thing is `POST /v1/campaigns/:id/retry` with an API key (it returns `{ "requeued": n }`), and `GET /v1/campaigns` now includes `waiting` (queued or being sent). Tests: `npm run test:queue` (in-process) and `npm run test:retry` (live server).
+
 ## Signup forms
 
 The Forms page creates public signup forms that feed a list. Each form has a hosted page (`/f/<slug>` on your API or tracking domain), an iframe embed with auto-resize, and a plain HTML snippet for custom designs.

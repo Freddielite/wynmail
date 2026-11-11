@@ -171,6 +171,7 @@ export const api = {
   campaignPreview: (id) => request(ws(`/campaigns/${id}/preview`)),
   campaignMessages: (id) => request(ws(`/campaigns/${id}/messages`)),
   campaignAb: (id) => request(ws(`/campaigns/${id}/ab`)),
+  retryCampaign: (id) => request(ws(`/campaigns/${id}/retry`), { method: 'POST', body: {} }),
   resendCampaign: (id, subject) => request(ws(`/campaigns/${id}/resend`), { method: 'POST', body: { subject } }),
   unsubscribeReasons: (days = 30) => request(ws(`/analytics/unsubscribe-reasons?days=${days}`))
 };

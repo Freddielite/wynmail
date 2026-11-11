@@ -32,7 +32,9 @@
     "test:spamrisk": "node test/spamrisk.mjs",
     "test:prospector": "node test/prospector.mjs",
     "test:smtp": "node test/smtp.mjs",
-    "test:replies": "node test/replies.mjs"
+    "test:replies": "node test/replies.mjs",
+    "test:queue": "node test/queue-resilience.mjs",
+    "test:retry": "node test/retry-api.mjs"
   },
   "keywords": [],
   "author": "",

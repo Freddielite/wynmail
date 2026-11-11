@@ -13,10 +13,33 @@ import { processDueRuns, scanDateTriggers } from './automations.js';
 import { compileSegment } from './segments.js';
 import { processAbTests, abPlan, AB_MIN_AUDIENCE } from './abtest.js';
 import { applyBestTime, applyLocalTime } from './timing.js';
+import { withTimeout } from './timeout.js';
 
 const MAX_ATTEMPTS = 3;
 const TICK_MS = Number(process.env.QUEUE_TICK_MS || 5000);
+// A second 'tick' never starts while one is running, but a tick that hangs must not stop
+// sending for good: after TICK_LIMIT_MS a new one takes over (the old one's late finish is ignored).
+const TICK_LIMIT_MS = Number(process.env.QUEUE_TICK_LIMIT_MS || 120000);
+// A message still 'sending' after this long was claimed by a tick that died. It goes back in the queue.
+const STALE_SENDING_MINUTES = Number(process.env.QUEUE_STALE_MINUTES || 5);
+// A failed attempt waits before the next one, so a short provider hiccup (a rate limit, a blip)
+// does not use up all three attempts in fifteen seconds.
+const RETRY_WAIT_MS = [0, 30000, 120000];
 let running = false;
+let runningSince = 0;
+let lastTickAt = 0;
+let workerStarted = false;
+let generation = 0;
+
+// For /health/ready: is the worker alive and finishing its rounds?
+export function queueHealth(now = Date.now()) {
+  return {
+    started: workerStarted,
+    running,
+    runningForMs: running ? now - runningSince : 0,
+    lastRoundAgoMs: lastTickAt ? now - lastTickAt : null,
+  };
+}
 
 export const MAX_COLD_EMAILS = Number(process.env.PROSPECT_MAX_EMAILS || 3);
 export const MIN_GAP_HOURS = Number(process.env.PROSPECT_MIN_GAP_HOURS ?? 48);
@@ -138,40 +161,76 @@ export async function enqueueCampaign(campaignId, { force = false, userId = null
 }
 
 export async function drainOnce() {
-  await query(`UPDATE messages SET status = 'queued' WHERE status = 'sending' AND claimed_at < now() - interval '10 minutes'`);
+  await query(`UPDATE messages SET status = 'queued', claimed_at = NULL WHERE status = 'sending' AND claimed_at < now() - interval '1 minute' * $1`, [STALE_SENDING_MINUTES]);
 
   const workspaces = await many(
     `SELECT DISTINCT w.* FROM workspaces w JOIN messages m ON m.workspace_id = w.id WHERE m.status = 'queued' AND (m.send_after IS NULL OR m.send_after <= now())`
   );
 
+  // One workspace with a problem (a broken mailbox, a bad setting) must never stop the others from sending.
   for (const workspace of workspaces) {
-    // While warming up, the cap grows day by day. Transactional mail is not held back by it.
-    const lim = await campaignLimit(workspace);
-    const dailyLeft = Math.max(0, lim.limit - (await sentToday(workspace.id)));
-    // rate_per_minute is per minute, so scale it down to the size of one tick.
-    const perTick = Math.max(1, Math.ceil(((workspace.rate_per_minute || 60) * TICK_MS) / 60000));
-    let batchSize = Math.min(perTick, dailyLeft);
-    // Sending through the workspace's own mailboxes: each one has a daily cap, so only what they can still send goes out.
-    // The rest simply waits in the queue for tomorrow.
-    if (!process.env.FORCE_PROVIDER && workspace.provider === 'smtp') batchSize = Math.min(batchSize, (await capacity(workspace.id)).left);
-    if (batchSize <= 0) continue;
-
-    // Claim rows atomically so an overlapping tick or second instance never double-sends.
-    const batch = await many(
-      `UPDATE messages SET status = 'sending', claimed_at = now()
-       WHERE id IN (
-         SELECT id FROM messages WHERE workspace_id = $1 AND status = 'queued' AND (send_after IS NULL OR send_after <= now())
-         ORDER BY queued_at ASC,
-           CASE WHEN $3::boolean THEN (SELECT count(*) FROM messages p WHERE p.contact_id = messages.contact_id AND p.opened_at IS NOT NULL) ELSE 0 END DESC,
-           id ASC
-         LIMIT $2 FOR UPDATE SKIP LOCKED
-       ) RETURNING *`,
-      // While warming up, the most engaged people go first, which builds a good reputation fastest.
-      [workspace.id, batchSize, lim.active]
-    );
-    for (const message of batch) await throttled(() => sendMessage(workspace, message));
+    try {
+      await drainWorkspace(workspace);
+    } catch (err) {
+      console.error(JSON.stringify({ level: 'error', msg: 'queue: workspace skipped this round', workspace: workspace.id, err: String(err?.message || err) }));
+    }
   }
 
+  await finishCampaigns();
+}
+
+async function drainWorkspace(workspace) {
+  // While warming up, the cap grows day by day. Transactional mail is not held back by it.
+  const lim = await campaignLimit(workspace);
+  const dailyLeft = Math.max(0, lim.limit - (await sentToday(workspace.id)));
+  // rate_per_minute is per minute, so scale it down to the size of one tick.
+  const perTick = Math.max(1, Math.ceil(((workspace.rate_per_minute || 60) * TICK_MS) / 60000));
+  let batchSize = Math.min(perTick, dailyLeft);
+  // Sending through the workspace's own mailboxes: each one has a daily cap, so only what they can still send goes out.
+  // The rest simply waits in the queue for tomorrow.
+  if (!process.env.FORCE_PROVIDER && workspace.provider === 'smtp') batchSize = Math.min(batchSize, (await capacity(workspace.id)).left);
+  if (batchSize <= 0) return;
+
+  // Claim rows atomically so an overlapping tick or second instance never double-sends.
+  const batch = await many(
+    `UPDATE messages SET status = 'sending', claimed_at = now()
+     WHERE id IN (
+       SELECT id FROM messages WHERE workspace_id = $1 AND status = 'queued' AND (send_after IS NULL OR send_after <= now())
+       ORDER BY queued_at ASC,
+         CASE WHEN $3::boolean THEN (SELECT count(*) FROM messages p WHERE p.contact_id = messages.contact_id AND p.opened_at IS NOT NULL) ELSE 0 END DESC,
+         id ASC
+       LIMIT $2 FOR UPDATE SKIP LOCKED
+     ) RETURNING *`,
+    // While warming up, the most engaged people go first, which builds a good reputation fastest.
+    [workspace.id, batchSize, lim.active]
+  );
+  for (const message of batch) {
+    try {
+      await throttled(() => sendMessage(workspace, message));
+    } catch (err) {
+      // An unexpected failure (including a provider that never answered) is this message's problem only:
+      // it goes back to waiting, and the rest of the batch still goes out.
+      await recoverMessage(message, err);
+    }
+  }
+}
+
+// Gives a message back to the queue (or fails it after the last attempt) when something unexpected went wrong.
+async function recoverMessage(message, err) {
+  const text = String(err?.message || err).slice(0, 500);
+  console.error(JSON.stringify({ level: 'error', msg: 'queue: message not sent', message: message.id, err: text }));
+  const attempts = (message.attempts || 0) + 1;
+  const wait = RETRY_WAIT_MS[Math.min(attempts, RETRY_WAIT_MS.length - 1)];
+  await query(
+    `UPDATE messages SET status = CASE WHEN $2::int >= $3::int THEN 'failed' ELSE 'queued' END, claimed_at = NULL, attempts = $2::int, error = $4,
+       send_after = CASE WHEN $2::int >= $3::int THEN send_after ELSE now() + interval '1 millisecond' * $5 END
+     WHERE id = $1 AND status = 'sending'`,
+    [message.id, attempts, MAX_ATTEMPTS, text, wait]
+  ).catch(() => {});
+}
+
+// A campaign is finished when nothing of it is still waiting or being sent.
+async function finishCampaigns() {
   await query(
     `UPDATE campaigns SET status = 'sent', finished_at = now()
      WHERE status = 'sending'
@@ -255,9 +314,12 @@ async function sendMessage(workspace, message) {
       return;
     }
     const attempts = message.attempts + 1;
+    const last = attempts >= MAX_ATTEMPTS;
+    const wait = RETRY_WAIT_MS[Math.min(attempts, RETRY_WAIT_MS.length - 1)];
     await query(
-      `UPDATE messages SET status = $2, attempts = $3, error = $4 WHERE id = $1`,
-      [message.id, attempts >= MAX_ATTEMPTS ? 'failed' : 'queued', attempts, String(err.message).slice(0, 500)]
+      `UPDATE messages SET status = $2, claimed_at = NULL, attempts = $3, error = $4,
+         send_after = CASE WHEN $2 = 'queued' THEN now() + interval '1 millisecond' * $5 ELSE send_after END WHERE id = $1`,
+      [message.id, last ? 'failed' : 'queued', attempts, String(err.message).slice(0, 500), wait]
     );
   }
 }
@@ -292,23 +354,72 @@ export async function guardRunning() {
   if (Date.now() - lastLearn > 3600000) { lastLearn = Date.now(); await learn().catch((err) => console.error('[learn]', err.message)); }
 }
 
+// One step of a round. A step that fails is logged and the next one still runs, so a problem in
+// (say) the automations can never stop emails from going out.
+async function step(name, fn) {
+  try {
+    await fn();
+  } catch (err) {
+    console.error(JSON.stringify({ level: 'error', msg: 'queue: step failed', step: name, err: String(err?.message || err) }));
+  }
+}
+
 export function startWorker() {
+  workerStarted = true;
+  lastTickAt = Date.now();
   const tick = async () => {
-    if (running) return;
+    if (running) {
+      if (Date.now() - runningSince < TICK_LIMIT_MS) return;
+      console.error(JSON.stringify({ level: 'error', msg: 'queue: a round is stuck, starting a new one', stuckForMs: Date.now() - runningSince }));
+    }
+    const mine = ++generation;
     running = true;
+    runningSince = Date.now();
     try {
-      await enqueueDueCampaigns();
-      await processDueRuns();
-      await scanDateTriggers();
-      await processAbTests();
-      await drainOnce();
-      await guardRunning();
-    } catch (err) {
-      console.error('[queue]', err.message);
+      await step('enqueueDueCampaigns', enqueueDueCampaigns);
+      await step('processDueRuns', processDueRuns);
+      await step('scanDateTriggers', scanDateTriggers);
+      await step('processAbTests', processAbTests);
+      await step('drain', () => withTimeout(drainOnce(), TICK_LIMIT_MS, 'The sending round took too long'));
+      await step('guardRunning', guardRunning);
     } finally {
-      running = false;
+      // If a newer round has taken over, this late finish must not mark it as done.
+      if (generation === mine) {
+        running = false;
+        lastTickAt = Date.now();
+      }
     }
   };
   tick();
   return setInterval(tick, TICK_MS);
+}
+
+// Puts back the emails of a campaign that did not go out: ones that failed (a provider problem or a
+// timeout, not a bad address) and ones stuck mid-send. Nobody who bounced, complained or unsubscribed
+// is touched, and nobody who already got it is sent a second copy.
+export async function retryCampaign(campaignId, workspaceId) {
+  const campaign = await one(`SELECT * FROM campaigns WHERE id = $1 AND workspace_id = $2`, [campaignId, workspaceId]);
+  if (!campaign) {
+    const err = new Error('Campaign not found');
+    err.status = 404;
+    throw err;
+  }
+  if (!['sending', 'sent'].includes(campaign.status)) throw new Error('Only a campaign that has been sent can be retried');
+  if (campaign.paused_reason) throw new Error('This campaign was paused to protect your sender reputation. Review it in Wynmail before sending more.');
+  // A test-and-wait or timed campaign releases its held emails itself, so those are left alone.
+  const staged = !!(campaign.best_time || campaign.local_time || (campaign.subject_b && campaign.ab_percent));
+  const states = staged ? ['failed', 'queued'] : ['failed', 'queued', 'held'];
+  const row = await one(
+    `WITH re AS (
+       UPDATE messages m SET status = 'queued', claimed_at = NULL, attempts = 0, error = NULL, send_after = NULL
+       FROM contacts c
+       WHERE m.campaign_id = $1 AND m.workspace_id = $2 AND c.id = m.contact_id AND c.status = 'subscribed'
+         AND m.sent_at IS NULL AND m.bounced_at IS NULL AND m.complained_at IS NULL AND m.unsubscribed_at IS NULL
+         AND (m.status = ANY($3::text[]) OR (m.status = 'sending' AND m.claimed_at < now() - interval '2 minutes'))
+       RETURNING m.id
+     ) SELECT count(*)::int AS n FROM re`,
+    [campaignId, workspaceId, states]
+  );
+  if (row.n > 0) await query(`UPDATE campaigns SET status = 'sending', finished_at = NULL WHERE id = $1`, [campaignId]);
+  return { requeued: row.n };
 }

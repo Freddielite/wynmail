@@ -136,3 +136,6 @@
 134. `fix(prospector): try four public map servers and say exactly why a business search failed (busy, too big, no connection)`
 135. `feat(forms): notify workspace owners in the app and by email when someone becomes a subscriber`
 136. `fix(web): refresh the workspace switcher right after creating a client so no page reload is needed`
+137. `fix(queue): isolate each workspace, step and message, time out provider calls, wait between retries and restart a stuck round`
+138. `feat(campaigns): retry the emails of a campaign that did not go out, from the API and the dashboard`
+139. `fix(health): report a frozen sending queue on /health/ready so the host restarts it`
