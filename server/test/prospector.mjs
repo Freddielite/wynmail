@@ -4,6 +4,12 @@ import os from 'os';
 import path from 'path';
 import http from 'http';
 import zlib from 'zlib';
+// CI sets these two for the whole job because the integration suites need them (a fixture
+// instead of the real map servers, and no pauses). Here they would switch off exactly what
+// this file tests: the real pause between requests and the real map-server logic. So this
+// file ignores them, whatever the environment says.
+delete process.env.PROSPECT_DISCOVER_FIXTURE;
+delete process.env.PROSPECT_DELAY_MS;
 process.env.USE_PGLITE = '1';
 process.env.PGLITE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'finder-'));
 process.env.FORCE_PROVIDER = 'console';
